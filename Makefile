@@ -6,7 +6,7 @@ setup: ## Setup Python Environment
 	@make setup-git-hooks
 	cp .env.example .env
 	poetry install
-	pip install -e .
+	poetry run pip install -e .
 
 setup-ci: ## Setup the environment for CI
 	curl -sSL https://install.python-poetry.org | POETRY_VERSION=1.4.2 python -
