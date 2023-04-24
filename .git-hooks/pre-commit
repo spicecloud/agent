@@ -1,0 +1,19 @@
+#!/bin/sh
+# lint, if linting errors, then format, then lint again
+make lint
+if [ $? -ne 0 ]; then
+    echo "lint errors. attempting to format."
+    make format
+    if [ $? -ne 0 ]; then
+        echo "format found errors. Aborting commit."
+        exit 1
+    fi
+    make lint
+    if [ $? -ne 0 ]; then
+        echo "lint errors. Aborting commit."
+        exit 1
+    fi
+fi
+
+# If there are no errors, continue with the commit
+exit 0
