@@ -1,0 +1,77 @@
+fragment UserFragment on User {
+  id
+  username
+  email
+  firstName
+  lastName
+  isStaff
+  isSuperuser
+}
+
+query whoami {
+  whoami {
+    ...UserFragment
+  }
+}
+
+mutation login($username: String!, $password: String!) {
+  login(username: $username, password: $password) {
+    ...UserFragment
+  }
+}
+
+mutation logout {
+  logout
+}
+
+mutation joinWaitlist($email: String!) {
+  joinWaitlist(email: $email)
+}
+
+mutation signup(
+  $inviteCode: String!
+  $username: String!
+  $email: String!
+  $firstName: String!
+  $lastName: String!
+  $password: String!
+) {
+  signup(
+    inviteCode: $inviteCode
+    username: $username
+    email: $email
+    firstName: $firstName
+    lastName: $lastName
+    password: $password
+  ) {
+    ...UserFragment
+  }
+}
+
+mutation changePassword(
+  $oldPassword: String!
+  $newPassword1: String!
+  $newPassword2: String!
+) {
+  changePassword(
+    oldPassword: $oldPassword
+    newPassword1: $newPassword1
+    newPassword2: $newPassword2
+  )
+}
+
+mutation updateUser(
+  $username: String
+  $firstName: String
+  $lastName: String
+  $email: String
+) {
+  updateUser(
+    username: $username
+    firstName: $firstName
+    lastName: $lastName
+    email: $email
+  ) {
+    ...UserFragment
+  }
+}
