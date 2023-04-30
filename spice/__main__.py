@@ -1,6 +1,6 @@
 import click
 
-from .auth.commands import cli as auth_cli
+from .auth.commands import cli as auth_cli, config_command, whoami_command
 from .hardware.commands import cli as hardware_cli
 from .utils.config import read_config_file
 
@@ -30,11 +30,14 @@ def cli(context, debug, json, verbose):
     context.obj["JSON"] = json
     context.obj["VERBOSE"] = verbose
 
+    existing_config = read_config_file()
+    context.obj["CONFIG"] = existing_config
 
-cli.add_command(auth_cli, "auth")
+
+cli.add_command(config_command, "config")
+cli.add_command(whoami_command, "whoami")
 cli.add_command(hardware_cli, "hardware")
 
 
 if __name__ == "__main__":
-    read_config_file()
     cli(obj={})

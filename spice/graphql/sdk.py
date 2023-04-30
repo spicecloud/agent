@@ -1,44 +1,53 @@
-import asyncio
-
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
 
-GRAPHQL_URL = "http://localhost:8000/"
 
-
-async def main():
-    transport = AIOHTTPTransport(url=GRAPHQL_URL)
-    async with Client(
+def sdk_client(url: str, token: str = None):
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Token {token}"
+    transport = AIOHTTPTransport(url=url, headers=headers)
+    session = Client(
         transport=transport,
         fetch_schema_from_transport=True,
-    ) as session:
-        query = gql(
-            """
-            mutation login($username: String!, $password: String!) {
-                login (username: $username, password: $password) {
-                    username
-                }
-            }
+    )
+    return session
+
+
+def login_mutation(session: Client, username: str, password: str):
+    mutation = gql(
         """
-        )
-
-        params = {"username": "", "password": ""}
-
-        result = await session.execute(query, variable_values=params)
-        print(result)
-
-        query = gql(
-            """
-            query whoami {
-              whoami {
+        mutation login($username: String!, $password: String!) {
+            login (username: $username, password: $password) {
                 username
-              }
             }
+        }
+    """
+    )
+    params = {"username": username, "password": password}
+    result = session.execute(mutation, variable_values=params)
+    query = gql(
         """
-        )
+        query whoami {
+            whoami {
+            username
+            }
+        }
+    """
+    )
+    result = session.execute(query)
+    return result
 
-        result = await session.execute(query)
-        print(result)
 
-
-asyncio.run(main())
+def whoami_query(session: Client):
+    query = gql(
+        """
+        query whoami {
+            whoami {
+            username
+            }
+        }
+    """
+    )
+    result = session.execute(query)
+    return result
