@@ -1,6 +1,6 @@
 import click
 
-from .auth.commands import cli as auth_cli, config_command, whoami_command
+from .auth.commands import config_command, whoami_command
 from .hardware.commands import cli as hardware_cli
 from .utils.config import read_config_file
 
