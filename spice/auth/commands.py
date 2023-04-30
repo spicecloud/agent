@@ -1,9 +1,10 @@
 import json
 import os
+import webbrowser
 
 import click
 
-from .actions import login, setup_config, whoami
+from .actions import setup_config, whoami
 
 
 @click.group()
@@ -13,23 +14,13 @@ def cli(context):
     pass
 
 
-@cli.command("login")
-@click.pass_context
-def login_command(context):
-    """Login"""
-    message = login()
-    if context.obj["JSON"]:
-        message = json.dumps({"result": message})
-    click.echo(message)
-
-
 @cli.command("whoami")
 @click.pass_context
 def whoami_command(context):
     """Whoami"""
     message = whoami()
     if context.obj["JSON"]:
-        message = json.dumps({"result": message})
+        message = json.dumps(message)
     click.echo(message)
 
 
@@ -41,9 +32,6 @@ def whoami_command(context):
     default=lambda: os.environ.get("SPICE_USER", ""),
     show_default="current user",
     help="Username for Spice API",
-)
-@click.password_option(
-    help="Password for Spice API",
 )
 @click.option(
     "--host",
@@ -59,14 +47,34 @@ def whoami_command(context):
     show_default="https",
     help="Transport protocol for Spice API",
 )
-def config_command(context, username: str, password: str, host: str, transport: str):
+def config_command(context, username: str, host: str, transport: str):
     """Configure the CLI"""
+    token = os.environ.get("SPICE_TOKEN", "")
+    if not token and context.obj.get("YES"):
+        raise click.ClickException(
+            "SPICE_TOKEN environment variable is required for non-interactive mode"
+        )
+    while not token:
+        settings_url = f"{transport}://{host.strip('api.')}/settings"
+        if "localhost" in host:
+            settings_url = f"http://localhost:3000/settings"
+        click.secho(
+            f"You can find or create a Spice API token at {settings_url}",
+            fg="yellow",
+        )
+
+        webbrowser.open_new_tab(settings_url)
+        token = click.prompt(
+            "Please enter your Spice API token", hide_input=True, type=str
+        )
+
     config_path = setup_config(
-        username=username, password=password, host=host, transport=transport
+        username=username, token=token, host=host, transport=transport
     )
     message = (
         f"Config created at '{config_path}' for user '{username}' on host '{host}'"
     )
+
     if context.obj["JSON"]:
         message = json.dumps({"result": message})
     click.secho(message, fg="green")

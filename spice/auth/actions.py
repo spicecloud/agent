@@ -4,10 +4,6 @@ from ..utils.config import get_config_filepath, read_config_file, update_config_
 DEFAULT_HOST = "localhost:8000"
 
 
-def login(username: str, password: str):
-    return
-
-
 def whoami():
     existing_config = read_config_file()
     token = existing_config.get(DEFAULT_HOST).get("token")
@@ -19,30 +15,12 @@ def whoami():
     return result
 
 
-def get_token(
-    username: str,
-    password: str,
-    host: str = "api.spice.cloud",
-    transport: str = "https",
-):
-    token = ""
-    url = f"{transport}://{host}/"
-    session = sdk_client(url=url)
-    login_mutation(session=session, username=username, password=password)
-    whoami_query(session=session)
-    # create_auth_token(session=session)
-    return token
-
-
 def setup_config(
     username: str,
-    password: str,
+    token: str,
     host: str = "api.spice.cloud",
     transport: str = "https",
 ):
-    token = get_token(
-        username=username, password=password, host=host, transport=transport
-    )
     new_config = read_config_file()
     new_host_config = {
         "username": username,

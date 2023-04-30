@@ -7,6 +7,9 @@ from .utils.config import read_config_file
 
 @click.group()
 @click.option(
+    "--yes", is_flag=True, show_default=True, default=False, help="Skip interactions."
+)
+@click.option(
     "--debug", is_flag=True, show_default=True, default=False, help="Enable debug mode."
 )
 @click.option(
@@ -23,9 +26,10 @@ from .utils.config import read_config_file
     help="Verbosity of output levels.",
 )
 @click.pass_context
-def cli(context, debug, json, verbose):
+def cli(context, yes, debug, json, verbose):
     """spice agent - a CLI tool for https://spice.cloud"""
     context.ensure_object(dict)
+    context.obj["YES"] = yes
     context.obj["DEBUG"] = debug
     context.obj["JSON"] = json
     context.obj["VERBOSE"] = verbose
