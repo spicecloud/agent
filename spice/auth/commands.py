@@ -57,7 +57,7 @@ def config_command(context, username: str, host: str, transport: str):
     while not token:
         settings_url = f"{transport}://{host.strip('api.')}/settings"
         if "localhost" in host:
-            settings_url = f"http://localhost:3000/settings"
+            settings_url = "http://localhost:3000/settings"
         click.secho(
             f"You can find or create a Spice API token at {settings_url}",
             fg="yellow",

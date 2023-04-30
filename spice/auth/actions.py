@@ -1,4 +1,4 @@
-from ..graphql.sdk import login_mutation, sdk_client, whoami_query
+from ..graphql.sdk import sdk_client, whoami_query
 from ..utils.config import get_config_filepath, read_config_file, update_config_file
 
 DEFAULT_HOST = "localhost:8000"
