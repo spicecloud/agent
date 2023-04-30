@@ -1,6 +1,8 @@
 import click
 
 from .auth.commands import cli as auth_cli
+from .hardware.commands import cli as hardware_cli
+from .utils.config import read_config_file
 
 
 @click.group()
@@ -22,6 +24,7 @@ from .auth.commands import cli as auth_cli
 )
 @click.pass_context
 def cli(context, debug, json, verbose):
+    """spice agent - a CLI tool for https://spice.cloud"""
     context.ensure_object(dict)
     context.obj["DEBUG"] = debug
     context.obj["JSON"] = json
@@ -29,7 +32,9 @@ def cli(context, debug, json, verbose):
 
 
 cli.add_command(auth_cli, "auth")
+cli.add_command(hardware_cli, "hardware")
 
 
 if __name__ == "__main__":
+    read_config_file()
     cli(obj={})
