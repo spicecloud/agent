@@ -18,7 +18,8 @@ def cli(context):
 @click.pass_context
 def whoami_command(context):
     """Whoami"""
-    message = whoami()
+    session = context.obj.get("SESSION")
+    message = whoami(session=session)
     if context.obj["JSON"]:
         message = json.dumps(message)
     click.echo(message)
