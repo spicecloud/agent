@@ -16,7 +16,8 @@ def cli(context):
 @click.pass_context
 def register_command(context):
     """Register"""
-    message = register()
+    session = context.obj.get("SESSION")
+    message = register(session=session)
     if context.obj["JSON"]:
-        message = json.dumps({"result": message})
+        message = json.dumps(message, indent=4)
     click.echo(message)

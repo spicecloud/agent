@@ -46,17 +46,3 @@ def login_mutation(session: Client, username: str, password: str):
     )
     result = session.execute(query)
     return result
-
-
-def whoami_query(session: Client):
-    query = gql(
-        """
-        query whoami {
-            whoami {
-            username
-            }
-        }
-    """
-    )
-    result = session.execute(query)
-    return result
