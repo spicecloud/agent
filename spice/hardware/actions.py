@@ -3,9 +3,8 @@ import platform
 import subprocess
 from typing import Dict
 
-from gql import Client, gql
+from gql import gql
 
-from spice.utils.config import update_config_file
 
 
 class Hardware:
@@ -66,5 +65,5 @@ class Hardware:
         )
         params = {"systemInfo": system_info}
         result = self.spice.session.execute(mutation, variable_values=params)
-        finger_print = result.get("registerHardware").get("fingerPrint")
+        result.get("registerHardware").get("fingerPrint")
         return result

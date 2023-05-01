@@ -1,4 +1,3 @@
-import sys
 
 from spice.auth.actions import Auth
 from spice.graphql.sdk import create_session
