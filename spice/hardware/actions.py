@@ -59,16 +59,32 @@ class Hardware:
                     systemInfo
                     createdAt
                     updatedAt
-                    fingerPrint
+                    fingerprint
                 }
             }
         """
         )
-        params = {"systemInfo": system_info}
-        result = self.spice.session.execute(mutation, variable_values=params)
-        finger_print = result.get("registerHardware").get("fingerPrint")
+        variables = {"systemInfo": system_info}
+        result = self.spice.session.execute(mutation, variable_values=variables)
+        fingerprint = result.get("registerHardware").get("fingerprint")
 
-        self.spice.host_config["finger_print"] = finger_print
+        self.spice.host_config["fingerprint"] = fingerprint
         self.spice.full_config[self.spice.host] = self.spice.host_config
         update_config_file(self.spice.full_config)
+        return result
+
+    def check_in_http(self):
+        mutation = gql(
+            """
+            mutation checkIn($isHealthy: Boolean!, $isQuarantined: Boolean!, $isAvailable: Boolean!) {
+                checkIn(isHealthy: $isHealthy, isQuarantined: $isQuarantined, isAvailable: $isAvailable) {
+                    createdAt
+                    updatedAt
+                    lastCheckIn
+                }
+            }
+        """  # noqa
+        )
+        variables = {"isHealthy": True, "isQuarantined": False, "isAvailable": True}
+        result = self.spice.session.execute(mutation, variable_values=variables)
         return result

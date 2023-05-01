@@ -13,7 +13,9 @@ class Spice:
         if not self.host_config:
             raise KeyError(f"Host {self.host} not found in config file.")
 
-        self.session = create_session(host=self.host)
+        self.session = create_session(
+            host=self.host, fingerprint=self.host_config.get("fingerprint", None)
+        )
 
         self.auth = Auth(self)
         self.hardware = Hardware(self)

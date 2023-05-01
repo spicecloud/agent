@@ -6,6 +6,7 @@ from ..utils.config import read_config_file
 
 def create_session(
     host: str = "api.spice.cloud",
+    fingerprint: str = None,
     fetch_schema_from_transport: bool = False,
 ):
     existing_config = read_config_file()
@@ -16,9 +17,15 @@ def create_session(
     token = host_config.get("token")
     transport = host_config.get("transport")
     url = f"{transport}://{host}/"
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
     if token:
         headers["Authorization"] = f"Token {token}"
+
+    if fingerprint:
+        headers["x-spice-fingerprint"] = fingerprint
     transport = AIOHTTPTransport(url=url, headers=headers)
     session = Client(
         transport=transport,

@@ -28,3 +28,14 @@ def register_command(context):
     if result.get("registerHardware"):
         message = "Hardware registered successfully"
     print_result(message=message, context=context, fg="green")
+
+
+@cli.command("checkin")
+@click.pass_context
+def checkin_command(context):
+    """Checkin Hardware with Spice"""
+    spice = context.obj.get("SPICE")
+    result = spice.hardware.check_in_http()
+    if result.get("checkIn"):
+        message = "Hardware checked in successfully"
+    print_result(message=message, context=context, fg="green")
