@@ -1,4 +1,3 @@
-
 import click
 
 from ..utils.printer import print_result
@@ -25,5 +24,7 @@ def systeminfo_command(context):
 def register_command(context):
     """Register Hardware with Spice"""
     spice = context.obj.get("SPICE")
-    message = spice.hardware.register()
-    print_result(message=message, context=context)
+    result = spice.hardware.register()
+    if result.get("registerHardware"):
+        message = "Hardware registered successfully"
+    print_result(message=message, context=context, fg="green")

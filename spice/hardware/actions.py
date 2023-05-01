@@ -5,6 +5,7 @@ from typing import Dict
 
 from gql import gql
 
+from spice.utils.config import update_config_file
 
 
 class Hardware:
@@ -65,5 +66,9 @@ class Hardware:
         )
         params = {"systemInfo": system_info}
         result = self.spice.session.execute(mutation, variable_values=params)
-        result.get("registerHardware").get("fingerPrint")
+        finger_print = result.get("registerHardware").get("fingerPrint")
+
+        self.spice.host_config["finger_print"] = finger_print
+        self.spice.full_config[self.spice.host] = self.spice.host_config
+        update_config_file(self.spice.full_config)
         return result
