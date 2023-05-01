@@ -2,7 +2,7 @@ import json
 
 import click
 
-from .actions import register
+from ..utils.printer import print_result
 
 
 @click.group()
@@ -12,12 +12,19 @@ def cli(context):
     pass
 
 
+@cli.command("systeminfo")
+@click.pass_context
+def systeminfo_command(context):
+    """Get System Info"""
+    spice = context.obj.get("SPICE")
+    message = spice.hardware.get_system_info()
+    print_result(message=message, context=context)
+
+
 @cli.command("register")
 @click.pass_context
 def register_command(context):
-    """Register"""
-    session = context.obj.get("SESSION")
-    message = register(session=session)
-    if context.obj["JSON"]:
-        message = json.dumps(message, indent=4)
-    click.echo(message)
+    """Register Hardware with Spice"""
+    spice = context.obj.get("SPICE")
+    message = spice.hardware.register()
+    print_result(message=message, context=context)

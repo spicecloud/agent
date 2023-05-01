@@ -9,8 +9,12 @@ def create_session(
     fetch_schema_from_transport: bool = False,
 ):
     existing_config = read_config_file()
-    token = existing_config.get(host).get("token")
-    transport = existing_config.get(host).get("transport")
+    host_config = existing_config.get(host)
+    if not host_config:
+        raise KeyError(f"Host {host} not found in config file.")
+
+    token = host_config.get("token")
+    transport = host_config.get("transport")
     url = f"{transport}://{host}/"
     headers = {"Content-Type": "application/json"}
     if token:
@@ -21,28 +25,3 @@ def create_session(
         fetch_schema_from_transport=fetch_schema_from_transport,
     )
     return session
-
-
-def login_mutation(session: Client, username: str, password: str):
-    mutation = gql(
-        """
-        mutation login($username: String!, $password: String!) {
-            login (username: $username, password: $password) {
-                username
-            }
-        }
-    """
-    )
-    params = {"username": username, "password": password}
-    result = session.execute(mutation, variable_values=params)
-    query = gql(
-        """
-        query whoami {
-            whoami {
-            username
-            }
-        }
-    """
-    )
-    result = session.execute(query)
-    return result

@@ -1,10 +1,11 @@
-import json
 import os
 import webbrowser
 
 import click
 
-from .actions import setup_config, whoami
+from spice.auth.actions import Auth
+
+from ..utils.printer import print_result
 
 
 @click.group()
@@ -18,11 +19,9 @@ def cli(context):
 @click.pass_context
 def whoami_command(context):
     """Whoami"""
-    session = context.obj.get("SESSION")
-    message = whoami(session=session)
-    if context.obj["JSON"]:
-        message = json.dumps(message)
-    click.echo(message)
+    spice = context.obj.get("SPICE")
+    message = spice.auth.whoami()
+    print_result(message=message, context=context)
 
 
 @cli.command("config")
@@ -69,13 +68,11 @@ def config_command(context, username: str, host: str, transport: str):
             "Please enter your Spice API token", hide_input=True, type=str
         )
 
-    config_path = setup_config(
+    auth = Auth(spice=None)
+    config_path = auth.setup_config(
         username=username, token=token, host=host, transport=transport
     )
     message = (
         f"Config created at '{config_path}' for user '{username}' on host '{host}'"
     )
-
-    if context.obj["JSON"]:
-        message = json.dumps({"result": message})
-    click.secho(message, fg="green")
+    print_result(message=message, context=context, fg="green")

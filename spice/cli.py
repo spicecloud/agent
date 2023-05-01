@@ -1,12 +1,12 @@
 import os
+import sys
 
 import click
 
-from spice.graphql.sdk import create_session
+from spice.client import Spice
 
 from .auth.commands import config_command, whoami_command
 from .hardware.commands import cli as hardware_cli
-from .utils.config import read_config_file
 
 
 @click.group()
@@ -44,12 +44,8 @@ def cli(context, host, yes, debug, json, verbose):
     context.obj["DEBUG"] = debug
     context.obj["JSON"] = json
     context.obj["VERBOSE"] = verbose
-
-    existing_config = read_config_file()
-    context.obj["CONFIG"] = existing_config
-    if host:
-        context.obj["HOST"] = host
-    context.obj["SESSION"] = create_session(host=host)
+    if "config" not in sys.argv:
+        context.obj["SPICE"] = Spice(host=host)
 
 
 cli.add_command(config_command, "config")
