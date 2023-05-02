@@ -7,6 +7,7 @@ from spice.client import Spice
 
 from .auth.commands import config_command, whoami_command
 from .hardware.commands import cli as hardware_cli
+from .job.commands import cli as job_cli
 
 
 @click.group()
@@ -51,6 +52,7 @@ def cli(context, host, yes, debug, json, verbose):
 cli.add_command(config_command, "config")
 cli.add_command(whoami_command, "whoami")
 cli.add_command(hardware_cli, "hardware")
+cli.add_command(job_cli, "job")
 
 
 if __name__ == "__main__":

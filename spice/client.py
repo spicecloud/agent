@@ -1,6 +1,7 @@
 from spice.auth.actions import Auth
 from spice.graphql.sdk import create_session
 from spice.hardware.actions import Hardware
+from spice.job.actions import Job
 from spice.utils.config import read_config_file
 
 
@@ -19,3 +20,4 @@ class Spice:
 
         self.auth = Auth(self)
         self.hardware = Hardware(self)
+        self.job = Job(self)
