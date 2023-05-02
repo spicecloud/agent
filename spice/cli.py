@@ -7,7 +7,7 @@ from spice.client import Spice
 
 from .auth.commands import config_command, whoami_command
 from .hardware.commands import cli as hardware_cli
-from .job.commands import cli as job_cli
+from .inference.commands import cli as inference_cli
 
 
 @click.group()
@@ -46,13 +46,13 @@ def cli(context, host, yes, debug, json, verbose):
     context.obj["JSON"] = json
     context.obj["VERBOSE"] = verbose
     if "config" not in sys.argv:
-        context.obj["SPICE"] = Spice(host=host)
+        context.obj["SPICE"] = Spice(host=host, DEBUG=debug)
 
 
 cli.add_command(config_command, "config")
 cli.add_command(whoami_command, "whoami")
 cli.add_command(hardware_cli, "hardware")
-cli.add_command(job_cli, "job")
+cli.add_command(inference_cli, "inference")
 
 
 if __name__ == "__main__":

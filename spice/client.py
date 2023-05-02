@@ -1,13 +1,14 @@
 from spice.auth.actions import Auth
 from spice.graphql.sdk import create_session
 from spice.hardware.actions import Hardware
-from spice.job.actions import Job
+from spice.inference.actions import Inference
 from spice.utils.config import read_config_file
 
 
 class Spice:
-    def __init__(self, host: str = "api.spice.cloud") -> None:
+    def __init__(self, host: str = "api.spice.cloud", DEBUG: bool = False) -> None:
         self.host = host
+        self.DEBUG = DEBUG
         self.full_config = read_config_file()
         self.host_config = self.full_config.get(self.host)
 
@@ -20,4 +21,4 @@ class Spice:
 
         self.auth = Auth(self)
         self.hardware = Hardware(self)
-        self.job = Job(self)
+        self.inference = Inference(self)
