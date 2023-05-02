@@ -36,7 +36,16 @@ def verify_torch_command(context):
 )
 @click.pass_context
 def run_command(context, model: str, input: str):
-    """Get System Info"""
+    """Run HuggingFace Pipeline with Model from hub and a basic input."""
     spice = context.obj.get("SPICE")
-    message = spice.inference.run_inference(model=model, input=input)
+    message = spice.inference.run_pipeline(model=model, input=input)
+    print_result(message=message, context=context)
+
+
+@cli.command("worker")
+@click.pass_context
+def worker_command(context):
+    """Run as a worker that picks up tasks from the spice.cloud queue."""
+    spice = context.obj.get("SPICE")
+    message = spice.inference.worker()
     print_result(message=message, context=context)

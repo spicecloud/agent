@@ -2,6 +2,14 @@ import logging
 import platform
 
 import torch
+from transformers import pipeline
+from transformers.pipelines.base import PipelineException
+
+# MESSAGES = [
+#     "Carl is a [MASK] guy!",
+#     "Jenny is a [MASK] lady!",
+#     "STOP",
+# ]
 
 
 class Inference:
@@ -29,7 +37,7 @@ class Inference:
             if self.spice.DEBUG:
                 print("Using MPS device.")
         else:
-            if self.spice.DEBUG:
+            if device is None and self.spice.DEBUG:
                 # in debug mode why is it not available
                 if not torch.backends.mps.is_built():
                     print(
@@ -45,7 +53,7 @@ class Inference:
             if self.spice.DEBUG:
                 print("Using CUDA device.")
         else:
-            if self.spice.DEBUG:
+            if device is None and self.spice.DEBUG:
                 # in debug mode why is it not available
                 if not torch.backends.cuda.is_built():
                     print(
@@ -78,11 +86,13 @@ class Inference:
 
             # Now every call runs on the GPU
             # pred = model(x)
-            return "PyTorch installed correctly."
+            return (
+                f"PyTorch installed correctly and tensors ran on device: {self.device}"
+            )
         except Exception as exception:
             return str(exception)
 
-    def run_inference(self, model="bert-base-uncased", input="spice.cloud is [MASK]!"):
+    def run_pipeline(self, model="bert-base-uncased", input="spice.cloud is [MASK]!"):
         # # Load pre-trained model tokenizer (vocabulary)
         # tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         # # Load pre-trained model (weights)
@@ -100,8 +110,19 @@ class Inference:
         # text = "Replace me by any text you'd like."
         # encoded_input = tokenizer(text, return_tensors='pt')
         # output = model(**encoded_input)
-        from transformers import pipeline
 
         pipe = pipeline(model=model, device=self.device)
         result = pipe(input)
         return result
+
+    def worker(self):
+        while True:
+            new_input = input("Enter a sentence [or STOP]: ")
+            if new_input == "STOP":
+                "Stopping worker."
+                break
+            try:
+                result = self.run_pipeline(model="bert-base-uncased", input=new_input)
+                print(result)
+            except PipelineException as exception:
+                print(f"""Input: "{new_input}" threw exception: {exception}""")
