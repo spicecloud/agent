@@ -5,11 +5,7 @@ import torch
 from transformers import pipeline
 from transformers.pipelines.base import PipelineException
 
-# MESSAGES = [
-#     "Carl is a [MASK] guy!",
-#     "Jenny is a [MASK] lady!",
-#     "STOP",
-# ]
+LOGGER = logging.getLogger(__name__)
 
 
 class Inference:
@@ -115,14 +111,20 @@ class Inference:
         result = pipe(input)
         return result
 
-    def worker(self):
+    def worker(self, interactive=False):
         while True:
-            new_input = input("Enter a sentence [or STOP]: ")
-            if new_input == "STOP":
-                "Stopping worker."
-                break
+            if interactive:
+                new_input = input("Enter a sentence [or STOP]: ")
+                if new_input == "STOP":
+                    "Stopping worker."
+                    break
+            else:
+                # pull down messages from the cloud
+                message = {"input": "spice.cloud is [MASK]!"}
+                new_input = message.get("input")
+
             try:
                 result = self.run_pipeline(model="bert-base-uncased", input=new_input)
-                print(result)
+                LOGGER.info(result)
             except PipelineException as exception:
-                print(f"""Input: "{new_input}" threw exception: {exception}""")
+                LOGGER.error(f"""Input: "{new_input}" threw exception: {exception}""")
