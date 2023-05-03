@@ -11,9 +11,7 @@ from transformers.pipelines.base import PipelineException
 LOGGER = logging.getLogger(__name__)
 
 
-from enum import Enum
 
-from gql.utilities import update_schema_enum
 
 
 class Inference:
