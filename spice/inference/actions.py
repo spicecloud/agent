@@ -11,15 +11,12 @@ from transformers.pipelines.base import PipelineException
 LOGGER = logging.getLogger(__name__)
 
 
-
-
-
 class Inference:
     def __init__(self, spice) -> None:
         self.spice = spice
         self.device = self.get_device()
 
-        logging.basicConfig(level=logging.INFO)
+        # logging.basicConfig(level=logging.INFO)
         if not self.spice.DEBUG:
             logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
             logging.getLogger("pika").setLevel(logging.ERROR)
@@ -160,7 +157,10 @@ class Inference:
             )
 
     def worker(self):
-        credentials = pika.PlainCredentials("", "")
+        credentials = pika.PlainCredentials(
+            self.spice.host_config["fingerprint"],
+            self.spice.host_config["rabbitmq_password"],
+        )
         connection = pika.BlockingConnection(
             pika.ConnectionParameters(
                 host="localhost",

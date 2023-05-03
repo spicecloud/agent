@@ -56,10 +56,8 @@ class Hardware:
             """
             mutation registerHardware($systemInfo: JSON!) {
                 registerHardware(systemInfo: $systemInfo) {
-                    systemInfo
-                    createdAt
-                    updatedAt
                     fingerprint
+                    rabbitmqPassword
                 }
             }
         """
@@ -67,8 +65,10 @@ class Hardware:
         variables = {"systemInfo": system_info}
         result = self.spice.session.execute(mutation, variable_values=variables)
         fingerprint = result.get("registerHardware").get("fingerprint")
+        rabbitmq_password = result.get("registerHardware").get("rabbitmqPassword")
 
         self.spice.host_config["fingerprint"] = fingerprint
+        self.spice.host_config["rabbitmq_password"] = rabbitmq_password
         self.spice.full_config[self.spice.host] = self.spice.host_config
         update_config_file(self.spice.full_config)
         return result
