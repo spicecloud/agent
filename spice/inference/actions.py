@@ -1,6 +1,9 @@
+import json
 import logging
 import platform
 
+from gql import gql
+import pika
 import torch
 from transformers import pipeline
 from transformers.pipelines.base import PipelineException
@@ -8,13 +11,20 @@ from transformers.pipelines.base import PipelineException
 LOGGER = logging.getLogger(__name__)
 
 
+from enum import Enum
+
+from gql.utilities import update_schema_enum
+
+
 class Inference:
     def __init__(self, spice) -> None:
         self.spice = spice
         self.device = self.get_device()
 
+        logging.basicConfig(level=logging.INFO)
         if not self.spice.DEBUG:
             logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
+            logging.getLogger("pika").setLevel(logging.ERROR)
 
     def get_device(self):
         """
@@ -88,6 +98,21 @@ class Inference:
         except Exception as exception:
             return str(exception)
 
+    def update_run_status(self, run_id: str, status: str, result: str):
+        mutation = gql(
+            """
+            mutation updateRunStatus($runId: String!, $status: String!, $result: String) {
+                updateRunStatus(runId: $runId, status: $status, result: $result) {
+                    runId
+                    status
+                }
+            }
+        """  # noqa
+        )
+        variables = {"runId": run_id, "status": status, "result": result}
+        result = self.spice.session.execute(mutation, variable_values=variables)
+        return result
+
     def run_pipeline(self, model="bert-base-uncased", input="spice.cloud is [MASK]!"):
         # # Load pre-trained model tokenizer (vocabulary)
         # tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
@@ -111,20 +136,47 @@ class Inference:
         result = pipe(input)
         return result
 
-    def worker(self, interactive=False):
-        while True:
-            if interactive:
-                new_input = input("Enter a sentence [or STOP]: ")
-                if new_input == "STOP":
-                    "Stopping worker."
-                    break
-            else:
-                # pull down messages from the cloud
-                message = {"input": "spice.cloud is [MASK]!"}
-                new_input = message.get("input")
+    def run_pipeline_callback(self, channel, method, properties, body: str):
+        body = json.loads(body.decode("utf-8"))
+        model = body["model"]
+        if not model:
+            raise Exception(f'No model found in message body: {body.decode("utf-8")}')
 
-            try:
-                result = self.run_pipeline(model="bert-base-uncased", input=new_input)
-                LOGGER.info(result)
-            except PipelineException as exception:
-                LOGGER.error(f"""Input: "{new_input}" threw exception: {exception}""")
+        new_input = body["input"]
+        if not new_input:
+            raise Exception(f'No input found in message body: {body.decode("utf-8")}')
+
+        run_id = body["run_id"]
+
+        try:
+            result = self.run_pipeline(model=model, input=new_input)
+            LOGGER.info(f"run_id: {run_id}. result: {result}")
+            self.update_run_status(
+                run_id=run_id, status="SUCCESS", result=json.dumps(result)
+            )
+        except PipelineException as exception:
+            message = f"""Input: "{new_input}" threw exception: {exception}"""
+            LOGGER.error(message)
+            self.update_run_status(
+                run_id=run_id, status="ERROR", result=json.dumps(message)
+            )
+
+    def worker(self):
+        credentials = pika.PlainCredentials("", "")
+        connection = pika.BlockingConnection(
+            pika.ConnectionParameters(
+                host="localhost",
+                port=5672,
+                virtual_host="inference",
+                credentials=credentials,
+            )
+        )
+        channel = connection.channel()
+        print(" [*] Waiting for messages. To exit press CTRL+C")
+        while True:
+            channel.basic_consume(
+                queue="default",
+                on_message_callback=self.run_pipeline_callback,
+                auto_ack=True,
+            )
+            channel.start_consuming()
