@@ -145,7 +145,7 @@ class Inference:
 
         try:
             result = self.run_pipeline(model=model, input=new_input)
-            LOGGER.info(f"run_id: {run_id}. result: {result}")
+            print(f"run_id: {run_id}. result: {result}")
             self.update_run_status(
                 run_id=run_id, status="SUCCESS", result=json.dumps(result)
             )
