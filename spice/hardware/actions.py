@@ -79,7 +79,12 @@ class Hardware:
         update_config_file(self.spice.full_config)
         return result
 
-    def check_in_http(self):
+    def check_in_http(
+        self,
+        is_healthy: bool = True,
+        is_quarantined: bool = False,
+        is_available: bool = True,
+    ):
         mutation = gql(
             """
             mutation checkIn($isHealthy: Boolean!, $isQuarantined: Boolean!, $isAvailable: Boolean!) {
@@ -91,6 +96,10 @@ class Hardware:
             }
         """  # noqa
         )
-        variables = {"isHealthy": True, "isQuarantined": False, "isAvailable": True}
+        variables = {
+            "isHealthy": is_healthy,
+            "isQuarantined": is_quarantined,
+            "isAvailable": is_available,
+        }
         result = self.spice.session.execute(mutation, variable_values=variables)
         return result

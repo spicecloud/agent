@@ -2,6 +2,7 @@ import json
 import logging
 import platform
 import ssl
+import sys
 
 from gql import gql
 import pika
@@ -158,6 +159,8 @@ class Inference:
             )
 
     def worker(self):
+        self.spice.hardware.check_in_http(is_available=True)
+
         credentials = pika.PlainCredentials(
             self.spice.host_config["fingerprint"],
             self.spice.host_config["rabbitmq_password"],
@@ -180,12 +183,18 @@ class Inference:
             )
         )
 
-        channel = connection.channel()
-        print(" [*] Waiting for messages. To exit press CTRL+C")
-        while True:
-            channel.basic_consume(
-                queue="default",
-                on_message_callback=self.run_pipeline_callback,
-                auto_ack=True,
-            )
-            channel.start_consuming()
+        try:
+            channel = connection.channel()
+            print(" [*] Waiting for messages. To exit press CTRL+C")
+            while True:
+                channel.basic_consume(
+                    queue="default",
+                    on_message_callback=self.run_pipeline_callback,
+                    auto_ack=True,
+                )
+                channel.start_consuming()
+        except KeyboardInterrupt:
+            print(" [*] Stopping worker...")
+            channel.close()
+            self.spice.hardware.check_in_http(is_available=False)
+            sys.exit()
