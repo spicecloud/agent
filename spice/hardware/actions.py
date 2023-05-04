@@ -58,6 +58,8 @@ class Hardware:
                 registerHardware(systemInfo: $systemInfo) {
                     fingerprint
                     rabbitmqPassword
+                    rabbitmqHost
+                    rabbitmqPort
                 }
             }
         """
@@ -66,9 +68,13 @@ class Hardware:
         result = self.spice.session.execute(mutation, variable_values=variables)
         fingerprint = result.get("registerHardware").get("fingerprint")
         rabbitmq_password = result.get("registerHardware").get("rabbitmqPassword")
+        rabbitmq_host = result.get("registerHardware").get("rabbitmqHost")
+        rabbitmq_port = result.get("registerHardware").get("rabbitmqPort")
 
         self.spice.host_config["fingerprint"] = fingerprint
         self.spice.host_config["rabbitmq_password"] = rabbitmq_password
+        self.spice.host_config["rabbitmq_host"] = rabbitmq_host
+        self.spice.host_config["rabbitmq_port"] = rabbitmq_port
         self.spice.full_config[self.spice.host] = self.spice.host_config
         update_config_file(self.spice.full_config)
         return result

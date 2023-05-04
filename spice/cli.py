@@ -45,6 +45,7 @@ def cli(context, host, yes, debug, json, verbose):
     context.obj["DEBUG"] = debug
     context.obj["JSON"] = json
     context.obj["VERBOSE"] = verbose
+    context.obj["HOST"] = host
     if "config" not in sys.argv:
         context.obj["SPICE"] = Spice(host=host, DEBUG=debug)
 

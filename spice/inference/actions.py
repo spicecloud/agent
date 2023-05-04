@@ -163,8 +163,8 @@ class Inference:
         )
         connection = pika.BlockingConnection(
             pika.ConnectionParameters(
-                host="localhost",
-                port=5672,
+                host=self.spice.host_config["rabbitmq_host"],
+                port=self.spice.host_config["rabbitmq_port"],
                 virtual_host="inference",
                 credentials=credentials,
             )

@@ -34,26 +34,20 @@ def whoami_command(context):
     help="Username for Spice API",
 )
 @click.option(
-    "--host",
-    required=False,
-    default=lambda: os.environ.get("SPICE_HOST", "api.spice.cloud"),
-    show_default="api.spice.cloud",
-    help="Environment of Spice API",
-)
-@click.option(
     "--transport",
     required=False,
     default="https",
     show_default="https",
     help="Transport protocol for Spice API",
 )
-def config_command(context, username: str, host: str, transport: str):
+def config_command(context, username: str, transport: str):
     """Configure the CLI"""
     token = os.environ.get("SPICE_TOKEN", "")
     if not token and context.obj.get("YES"):
         raise click.ClickException(
             "SPICE_TOKEN environment variable is required for non-interactive mode"
         )
+    host = context.obj.get("HOST", "api.spice.cloud")
     while not token:
         settings_url = f"{transport}://{host.strip('api.')}/settings"
         if "localhost" in host:
