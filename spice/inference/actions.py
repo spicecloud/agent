@@ -1,6 +1,7 @@
 import json
 import logging
 import platform
+import ssl
 
 from gql import gql
 import pika
@@ -161,14 +162,24 @@ class Inference:
             self.spice.host_config["fingerprint"],
             self.spice.host_config["rabbitmq_password"],
         )
+
+        host = self.spice.host_config["rabbitmq_host"]
+        ssl_options = None
+        if "localhost" not in host:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+            context.verify_mode = ssl.CERT_NONE
+            ssl_options = pika.SSLOptions(context)
+
         connection = pika.BlockingConnection(
             pika.ConnectionParameters(
                 host=self.spice.host_config["rabbitmq_host"],
                 port=self.spice.host_config["rabbitmq_port"],
                 virtual_host="inference",
                 credentials=credentials,
+                ssl_options=ssl_options,
             )
         )
+
         channel = connection.channel()
         print(" [*] Waiting for messages. To exit press CTRL+C")
         while True:
