@@ -202,6 +202,11 @@ class Inference:
             channel.close()
             self.spice.hardware.check_in_http(is_available=False)
             sys.exit()
+        except Exception as exception:
+            print(f" [*] Exception: {exception}")
+            channel.close()
+            self.spice.hardware.check_in_http(is_available=False)
+            sys.exit()
 
     # def run_pipeline(self, task="", model="bert-base-uncased", input="spice.cloud is [MASK]!"):  # noqa
     #     # # Load pre-trained model tokenizer (vocabulary)
