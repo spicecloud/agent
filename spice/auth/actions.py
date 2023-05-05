@@ -27,15 +27,16 @@ class Auth:
         host: str = "api.spice.cloud",
         transport: str = "https",
     ):
-        new_config = read_config_file()
+        full_config = read_config_file()
         new_host_config = {
             "username": username,
             "token": token,
             "transport": transport,
         }
-        if new_config.get(host, None):
-            new_config[host] = new_host_config
+
+        if existing_host_config := full_config.get(host, None):
+            full_config[host] = {**existing_host_config, **new_host_config}
         else:
-            new_config[host] = new_host_config
-        update_config_file(new_config=new_config)
+            full_config[host] = new_host_config
+        update_config_file(new_config=full_config)
         return get_config_filepath()

@@ -22,7 +22,7 @@ def update_config_file(new_config: Dict):
     spice_config_filepath = get_config_filepath()
     merged_config = {**existing_config, **new_config}
     with spice_config_filepath.open("w") as json_file:
-        json.dump(merged_config, json_file)
+        json.dump(merged_config, json_file, indent=2)
 
 
 def read_config_file() -> Dict:

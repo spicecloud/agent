@@ -39,21 +39,21 @@ class Inference:
         # mps device enables high-performance training on GPU for macOS
         # devices with Metal programming framework
         # https://pytorch.org/docs/master/notes/mps.html
-        # if os_family == "Darwin" and torch.backends.mps.is_available():
-        #     device = torch.device("mps")
-        #     if self.spice.DEBUG:
-        #         print("Using MPS device.")
-        # else:
-        #     if device is None and self.spice.DEBUG:
-        #         # in debug mode why is it not available
-        #         if not torch.backends.mps.is_built():
-        #             print(
-        #                 "MPS not available because the current PyTorch install was not built with MPS enabled."  # noqa
-        #             )
-        #         else:
-        #             print(
-        #                 "MPS not available because the current macOS version is not 12.3+ and/or you do not have an MPS-enabled device on this machine."  # noqa
-        #             )
+        if os_family == "Darwin" and torch.backends.mps.is_available():
+            device = torch.device("mps")
+            if self.spice.DEBUG:
+                print("Using MPS device.")
+        else:
+            if device is None and self.spice.DEBUG:
+                # in debug mode why is it not available
+                if not torch.backends.mps.is_built():
+                    print(
+                        "MPS not available because the current PyTorch install was not built with MPS enabled."  # noqa
+                    )
+                else:
+                    print(
+                        "MPS not available because the current macOS version is not 12.3+ and/or you do not have an MPS-enabled device on this machine."  # noqa
+                    )
 
         if device is None and torch.cuda.is_available():
             device = torch.device("cuda:0")
