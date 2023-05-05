@@ -7,7 +7,7 @@ import sys
 from gql import gql
 import pika
 import torch
-from transformers import pipeline
+from transformers import pipeline, set_seed
 from transformers.pipelines.base import PipelineException
 
 LOGGER = logging.getLogger(__name__)
@@ -110,31 +110,40 @@ class Inference:
         result = self.spice.session.execute(mutation, variable_values=variables)
         return result
 
-    def run_pipeline(self, model="bert-base-uncased", input="spice.cloud is [MASK]!"):
-        # # Load pre-trained model tokenizer (vocabulary)
-        # tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-        # # Load pre-trained model (weights)
-        # model = BertModel.from_pretrained("bert-base-uncased")
-        # model.eval()  # Set model to evaluation mode
-        # text = "Replace this with your text input"
-        # encoded_input = tokenizer(text, return_tensors="pt")
-        # with torch.no_grad():  # Disable gradient calculations
-        #     output = model(**encoded_input)  # Forward pass
-        # # 'output' now contains the model's output
-        # print(output)
-        # from transformers import BertTokenizer, BertModel
-        # tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        # model = BertModel.from_pretrained("bert-base-uncased")
-        # text = "Replace me by any text you'd like."
-        # encoded_input = tokenizer(text, return_tensors='pt')
-        # output = model(**encoded_input)
+    def run_bert_base_uncased(self, run_id: str, input="spice.cloud is [MASK]!"):
+        try:
+            pipe = pipeline(model="bert-base-uncased", device=self.device)
+            result = pipe(input)
+            print(f"run_id: {run_id}. result: {result}")
+            self.update_run_status(
+                run_id=run_id, status="SUCCESS", result=json.dumps(result)
+            )
+        except PipelineException as exception:
+            message = f"""Input: "{input}" threw exception: {exception}"""
+            LOGGER.error(message)
+            self.update_run_status(
+                run_id=run_id, status="ERROR", result=json.dumps(message)
+            )
 
-        pipe = pipeline(model=model, device=self.device)
-        result = pipe(input)
-        return result
+    def run_gpt2(self, run_id: str, input="Hello, I'm a language model,"):
+        try:
+            generator = pipeline("text-generation", model="gpt2", device=self.device)
+            set_seed(42)
+            result = generator(input, max_length=30, num_return_sequences=1)
+            print(f"run_id: {run_id}. result: {result}")
+            self.update_run_status(
+                run_id=run_id, status="SUCCESS", result=json.dumps(result)
+            )
+        except PipelineException as exception:
+            message = f"""Input: "{input}" threw exception: {exception}"""
+            LOGGER.error(message)
+            self.update_run_status(
+                run_id=run_id, status="ERROR", result=json.dumps(message)
+            )
 
     def run_pipeline_callback(self, channel, method, properties, body: str):
         body = json.loads(body.decode("utf-8"))
+        print("Found message. Processing.")
         model = body["model"]
         if not model:
             raise Exception(f'No model found in message body: {body.decode("utf-8")}')
@@ -144,18 +153,13 @@ class Inference:
             raise Exception(f'No input found in message body: {body.decode("utf-8")}')
 
         run_id = body["run_id"]
-
-        try:
-            result = self.run_pipeline(model=model, input=new_input)
-            print(f"run_id: {run_id}. result: {result}")
-            self.update_run_status(
-                run_id=run_id, status="SUCCESS", result=json.dumps(result)
-            )
-        except PipelineException as exception:
-            message = f"""Input: "{new_input}" threw exception: {exception}"""
-            LOGGER.error(message)
-            self.update_run_status(
-                run_id=run_id, status="ERROR", result=json.dumps(message)
+        if model == "bert-base-uncased":
+            self.run_bert_base_uncased(run_id=run_id, input=new_input)
+        elif model == "gpt2":
+            self.run_gpt2(run_id=run_id, input=new_input)
+        else:
+            raise Exception(
+                f"Unsupported model {model}. Please email support for addition."
             )
 
     def worker(self):
@@ -198,3 +202,26 @@ class Inference:
             channel.close()
             self.spice.hardware.check_in_http(is_available=False)
             sys.exit()
+
+    # def run_pipeline(self, task="", model="bert-base-uncased", input="spice.cloud is [MASK]!"):  # noqa
+    #     # # Load pre-trained model tokenizer (vocabulary)
+    #     # tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+    #     # # Load pre-trained model (weights)
+    #     # model = BertModel.from_pretrained("bert-base-uncased")
+    #     # model.eval()  # Set model to evaluation mode
+    #     # text = "Replace this with your text input"
+    #     # encoded_input = tokenizer(text, return_tensors="pt")
+    #     # with torch.no_grad():  # Disable gradient calculations
+    #     #     output = model(**encoded_input)  # Forward pass
+    #     # # 'output' now contains the model's output
+    #     # print(output)
+    #     # from transformers import BertTokenizer, BertModel
+    #     # tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    #     # model = BertModel.from_pretrained("bert-base-uncased")
+    #     # text = "Replace me by any text you'd like."
+    #     # encoded_input = tokenizer(text, return_tensors='pt')
+    #     # output = model(**encoded_input)
+
+    #     pipe = pipeline(model=model, device=self.device)
+    #     result = pipe(input)
+    #     return result
