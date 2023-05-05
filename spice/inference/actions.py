@@ -6,7 +6,9 @@ import sys
 
 from gql import gql
 import pika
+from retry import retry
 import torch
+import transformers
 from transformers import pipeline, set_seed
 from transformers.pipelines.base import PipelineException
 
@@ -17,9 +19,11 @@ class Inference:
     def __init__(self, spice) -> None:
         self.spice = spice
         self.device = self.get_device()
+        self.channel = None
 
         # logging.basicConfig(level=logging.INFO)
         if not self.spice.DEBUG:
+            transformers.logging.set_verbosity_debug()
             logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
             logging.getLogger("pika").setLevel(logging.ERROR)
 
@@ -35,21 +39,21 @@ class Inference:
         # mps device enables high-performance training on GPU for macOS
         # devices with Metal programming framework
         # https://pytorch.org/docs/master/notes/mps.html
-        if os_family == "Darwin" and torch.backends.mps.is_available():
-            device = torch.device("mps")
-            if self.spice.DEBUG:
-                print("Using MPS device.")
-        else:
-            if device is None and self.spice.DEBUG:
-                # in debug mode why is it not available
-                if not torch.backends.mps.is_built():
-                    print(
-                        "MPS not available because the current PyTorch install was not built with MPS enabled."  # noqa
-                    )
-                else:
-                    print(
-                        "MPS not available because the current macOS version is not 12.3+ and/or you do not have an MPS-enabled device on this machine."  # noqa
-                    )
+        # if os_family == "Darwin" and torch.backends.mps.is_available():
+        #     device = torch.device("mps")
+        #     if self.spice.DEBUG:
+        #         print("Using MPS device.")
+        # else:
+        #     if device is None and self.spice.DEBUG:
+        #         # in debug mode why is it not available
+        #         if not torch.backends.mps.is_built():
+        #             print(
+        #                 "MPS not available because the current PyTorch install was not built with MPS enabled."  # noqa
+        #             )
+        #         else:
+        #             print(
+        #                 "MPS not available because the current macOS version is not 12.3+ and/or you do not have an MPS-enabled device on this machine."  # noqa
+        #             )
 
         if device is None and torch.cuda.is_available():
             device = torch.device("cuda:0")
@@ -111,39 +115,19 @@ class Inference:
         return result
 
     def run_bert_base_uncased(self, run_id: str, input="spice.cloud is [MASK]!"):
-        try:
-            pipe = pipeline(model="bert-base-uncased", device=self.device)
-            result = pipe(input)
-            print(f"run_id: {run_id}. result: {result}")
-            self.update_run_status(
-                run_id=run_id, status="SUCCESS", result=json.dumps(result)
-            )
-        except PipelineException as exception:
-            message = f"""Input: "{input}" threw exception: {exception}"""
-            LOGGER.error(message)
-            self.update_run_status(
-                run_id=run_id, status="ERROR", result=json.dumps(message)
-            )
+        pipe = pipeline(model="bert-base-uncased", device=self.device)
+        result = pipe(input)
+        return result
 
     def run_gpt2(self, run_id: str, input="Hello, I'm a language model,"):
-        try:
-            generator = pipeline("text-generation", model="gpt2", device=self.device)
-            set_seed(42)
-            result = generator(input, max_length=30, num_return_sequences=1)
-            print(f"run_id: {run_id}. result: {result}")
-            self.update_run_status(
-                run_id=run_id, status="SUCCESS", result=json.dumps(result)
-            )
-        except PipelineException as exception:
-            message = f"""Input: "{input}" threw exception: {exception}"""
-            LOGGER.error(message)
-            self.update_run_status(
-                run_id=run_id, status="ERROR", result=json.dumps(message)
-            )
+        generator = pipeline("text-generation", model="gpt2", device=self.device)
+        set_seed(42)
+        result = generator(input, max_length=30, num_return_sequences=1)
+        return result
 
     def run_pipeline_callback(self, channel, method, properties, body: str):
+        print(" [*] Processing message.")
         body = json.loads(body.decode("utf-8"))
-        print("Found message. Processing.")
         model = body["model"]
         if not model:
             raise Exception(f'No model found in message body: {body.decode("utf-8")}')
@@ -151,20 +135,31 @@ class Inference:
         new_input = body["input"]
         if not new_input:
             raise Exception(f'No input found in message body: {body.decode("utf-8")}')
-
         run_id = body["run_id"]
-        if model == "bert-base-uncased":
-            self.run_bert_base_uncased(run_id=run_id, input=new_input)
-        elif model == "gpt2":
-            self.run_gpt2(run_id=run_id, input=new_input)
-        else:
-            raise Exception(
-                f"Unsupported model {model}. Please email support for addition."
+
+        print(f""" [*] Run ID: {run_id}. Model: {model}. Input: {new_input}""")
+        try:
+            result = None
+            if model == "bert-base-uncased":
+                result = self.run_bert_base_uncased(run_id=run_id, input=new_input)
+            elif model == "gpt2":
+                result = self.run_gpt2(run_id=run_id, input=new_input)
+            else:
+                raise Exception(
+                    f"Unsupported model {model}. Please email support for addition."
+                )
+            print(f""" [*] SUCCESS. Result: " {result}""")
+            self.update_run_status(
+                run_id=run_id, status="SUCCESS", result=json.dumps(result)
+            )
+        except PipelineException as exception:
+            message = f"""Input: "{input}" threw exception: {exception}"""
+            LOGGER.error(message)
+            self.update_run_status(
+                run_id=run_id, status="ERROR", result=json.dumps(message)
             )
 
-    def worker(self):
-        self.spice.hardware.check_in_http(is_available=True)
-
+    def _create_channel(self):
         credentials = pika.PlainCredentials(
             self.spice.host_config["fingerprint"],
             self.spice.host_config["rabbitmq_password"],
@@ -187,26 +182,49 @@ class Inference:
             )
         )
 
+        self.channel = connection.channel()
+        print(" [*] Channel connected.")
+
+    @retry(pika.exceptions.AMQPConnectionError, delay=0, jitter=(1, 3))
+    def _consume(self):
+        # channel.basic_qos(prefetch_count=1)
+        if self.channel is None:
+            self._create_channel()
+
+        # self.channel.queue_declare("inference", durable=True, auto_delete=False)
+        self.channel.basic_consume(
+            queue="default",
+            on_message_callback=self.run_pipeline_callback,
+            auto_ack=True,
+        )
         try:
-            channel = connection.channel()
             print(" [*] Waiting for messages. To exit press CTRL+C")
-            while True:
-                channel.basic_consume(
-                    queue="default",
-                    on_message_callback=self.run_pipeline_callback,
-                    auto_ack=True,
-                )
-                channel.start_consuming()
+            self.channel.start_consuming()
         except KeyboardInterrupt:
             print(" [*] Stopping worker...")
-            channel.close()
+            if self.channel:
+                self.channel.stop_consuming()
+                self.channel.close()
             self.spice.hardware.check_in_http(is_available=False)
             sys.exit()
+        except pika.exceptions.ConnectionClosedByBroker:
+            print(" [*] Connection closed by Broker.")
+            if self.channel:
+                self.channel.stop_consuming()
+                self.channel.close()
+            self.spice.hardware.check_in_http(is_available=False)
         except Exception as exception:
-            print(f" [*] Exception: {exception}")
-            channel.close()
+            print(f"Exception: {exception}")
+            if self.channel:
+                self.channel.stop_consuming()
+                self.channel.close()
             self.spice.hardware.check_in_http(is_available=False)
-            sys.exit()
+            raise exception
+
+    def worker(self):
+        print(f" [*] Using Device: {self.device} for inference.")
+        self.spice.hardware.check_in_http(is_available=True)
+        self._consume()
 
     # def run_pipeline(self, task="", model="bert-base-uncased", input="spice.cloud is [MASK]!"):  # noqa
     #     # # Load pre-trained model tokenizer (vocabulary)
