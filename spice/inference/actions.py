@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import platform
 import ssl
 import sys
@@ -7,10 +8,13 @@ import sys
 from gql import gql
 import pika
 from retry import retry
-import torch
-import transformers
-from transformers import pipeline, set_seed
-from transformers.pipelines.base import PipelineException
+
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+import torch  # noqa
+import transformers  # noqa
+from transformers import pipeline, set_seed  # noqa
+from transformers.pipelines.base import PipelineException  # noqa
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,7 +26,7 @@ class Inference:
         self.channel = None
 
         # logging.basicConfig(level=logging.INFO)
-        if not self.spice.DEBUG:
+        if self.spice.DEBUG:
             transformers.logging.set_verbosity_debug()
             logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
             logging.getLogger("pika").setLevel(logging.ERROR)
