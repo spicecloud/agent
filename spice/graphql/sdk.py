@@ -1,7 +1,7 @@
-from spice.__version__ import __version__
-
 from gql import Client
 from gql.transport.aiohttp import AIOHTTPTransport
+
+from spice.__version__ import __version__
 
 from ..utils.config import read_config_file
 
