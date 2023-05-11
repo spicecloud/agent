@@ -2,7 +2,7 @@
 name = "spice"
 version = "0.1.0"
 description = "spice agent"
-authors = ["Dylan Stein <dylan@spice.cloud>"]
+authors = ["Dylan Stein <dylan@spice.cloud>", "Ankush Patel <ankush@spice.cloud>"]
 license = ""
 
 [tool.poetry.dependencies]

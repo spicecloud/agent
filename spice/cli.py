@@ -1,5 +1,6 @@
 import os
 import sys
+from spice.__version__ import __version__
 
 import click
 
@@ -37,6 +38,7 @@ from .inference.commands import cli as inference_cli
     count=True,
     help="Verbosity of output levels.",
 )
+@click.version_option(__version__)
 @click.pass_context
 def cli(context, host, yes, debug, json, verbose):
     """spice agent - a CLI tool for https://spice.cloud"""
