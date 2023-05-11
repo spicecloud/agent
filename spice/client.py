@@ -1,6 +1,8 @@
 import sentry_sdk
 from sentry_sdk import set_user
 
+import spice
+
 from spice.auth.actions import Auth
 from spice.graphql.sdk import create_session
 from spice.hardware.actions import Hardware
@@ -31,7 +33,7 @@ class Spice:
             profiles_sample_rate=1.0,
             attach_stacktrace=True,
             send_default_pii=True,
-            release="spice@0.1.0",
+            release=f"spice@{spice.__version__}",
         )
 
         self.full_config = read_config_file()
