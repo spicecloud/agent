@@ -1,3 +1,5 @@
+import spice
+
 from gql import Client
 from gql.transport.aiohttp import AIOHTTPTransport
 
@@ -20,6 +22,7 @@ def create_session(
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
+        "User-Agent": f"spice/{spice.__version__}",
     }
     if token:
         headers["Authorization"] = f"Token {token}"
