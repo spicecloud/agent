@@ -85,6 +85,11 @@ class Hardware:
         is_quarantined: bool = False,
         is_available: bool = True,
     ):
+        fingerprint = self.spice.host_config.get("fingerprint", None)
+        if not fingerprint:
+            message = "No fingerprint found. Please register: spice hardware register"
+            raise Exception(message)
+
         mutation = gql(
             """
             mutation checkIn($isHealthy: Boolean!, $isQuarantined: Boolean!, $isAvailable: Boolean!) {
