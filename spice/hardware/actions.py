@@ -1,5 +1,5 @@
-import io
 import csv
+import io
 import json
 import platform
 import subprocess
@@ -29,15 +29,17 @@ class Hardware:
         }
 
     def get_windows_computer_service_product_values(self) -> Dict[str, str]:
-        windows_computer_service_product_csv_command = "cmd.exe /C wmic csproduct \
-            get Name, Vendor, Version, UUID /format:csv"
+        windows_computer_service_product_csv_command = (
+            "cmd.exe /C wmic csproduct get Name, Vendor, Version, UUID /format:csv"
+        )
         windows_computer_service_product_csv_output = subprocess.check_output(
             windows_computer_service_product_csv_command.split(" "),
             stderr=subprocess.DEVNULL,
         )
         windows_computer_service_product_csv_decoded = (
-            windows_computer_service_product_csv_output.decode("utf-8")\
-                .replace("\r", "").lstrip("\n")
+            windows_computer_service_product_csv_output.decode("utf-8")
+            .replace("\r", "")
+            .lstrip("\n")
         )
         windows_computer_service_product_dict = csv.DictReader(
             io.StringIO(windows_computer_service_product_csv_decoded)
@@ -57,8 +59,9 @@ class Hardware:
             windows_cpu_csv_command.split(" "),
             stderr=subprocess.DEVNULL,
         )
-        windows_cpu_csv_decoded = windows_cpu_csv_output.decode("utf-8")\
-            .replace("\r", "").lstrip("\n")
+        windows_cpu_csv_decoded = (
+            windows_cpu_csv_output.decode("utf-8").replace("\r", "").lstrip("\n")
+        )
         windows_cpu_dict = csv.DictReader(io.StringIO(windows_cpu_csv_decoded))
         cpu_info = list(windows_cpu_dict)[0]
         return {
@@ -100,7 +103,7 @@ class Hardware:
         system_info["processor"] = platform.processor()
         system_info["machine"] = platform.machine()
         system_info["architecture"] = platform.architecture()[0]
-        system_info["cpu_cores"] = str(platform.os.cpu_count()) # type: ignore exits
+        system_info["cpu_cores"] = str(platform.os.cpu_count())  # type: ignore exits
         return system_info
 
     def register(self):
