@@ -15,5 +15,12 @@ if [ $? -ne 0 ]; then
     fi
 fi
 
+# ensure package and project versions match
+pytest -k test_version --quiet
+if [ $? -ne 0 ]; then
+    echo "version mismatch. Aborting commit."
+    exit 1
+fi
+
 # If there are no errors, continue with the commit
 exit 0
