@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import platform
 import subprocess
@@ -26,6 +28,47 @@ class Hardware:
             "apple_serial_number": data_type.get("serial_number"),
         }
 
+    def get_windows_computer_service_product_values(self) -> Dict[str, str]:
+        windows_computer_service_product_csv_command = (
+            "cmd.exe /C wmic csproduct get Name, Vendor, Version, UUID /format:csv"
+        )
+        windows_computer_service_product_csv_output = subprocess.check_output(
+            windows_computer_service_product_csv_command.split(" "),
+            stderr=subprocess.DEVNULL,
+        )
+        windows_computer_service_product_csv_decoded = (
+            windows_computer_service_product_csv_output.decode("utf-8")
+            .replace("\r", "")
+            .lstrip("\n")
+        )
+        windows_computer_service_product_dict = csv.DictReader(
+            io.StringIO(windows_computer_service_product_csv_decoded)
+        )
+        csp_info = list(windows_computer_service_product_dict)[0]
+        return {
+            "windows_model_name": csp_info.get("Name", ""),
+            "windows_model_vendor": csp_info.get("Vendor", ""),
+            "windows_model_version": csp_info.get("Version", ""),
+            "windows_model_uuid": csp_info.get("UUID", ""),
+        }
+
+    def get_windows_cpu_values(self) -> Dict[str, str]:
+        windows_cpu_csv_command = "cmd.exe /C wmic cpu get\
+              Name, MaxClockSpeed /format:csv"
+        windows_cpu_csv_output = subprocess.check_output(
+            windows_cpu_csv_command.split(" "),
+            stderr=subprocess.DEVNULL,
+        )
+        windows_cpu_csv_decoded = (
+            windows_cpu_csv_output.decode("utf-8").replace("\r", "").lstrip("\n")
+        )
+        windows_cpu_dict = csv.DictReader(io.StringIO(windows_cpu_csv_decoded))
+        cpu_info = list(windows_cpu_dict)[0]
+        return {
+            "cpu_brand": cpu_info.get("Name", "").strip(),
+            "cpu_max_clock_speed": cpu_info.get("MaxClockSpeed", ""),
+        }
+
     def get_system_info(self):
         os_family = platform.system()
         system_info = {}
@@ -37,6 +80,20 @@ class Hardware:
                 .decode("utf-8")
             )
             system_info["apple_mac_os_version"] = platform.mac_ver()[0]
+        elif os_family == "Linux":
+            # Support for Linux-based VMs in Windows
+            if "WSL2" in platform.platform():
+                system_info = {
+                    **system_info,
+                    **self.get_windows_computer_service_product_values(),
+                    **self.get_windows_cpu_values(),
+                }
+        elif os_family == "Windows":
+            system_info = {
+                **system_info,
+                **self.get_windows_computer_service_product_values(),
+                **self.get_windows_cpu_values(),
+            }
 
         system_info["name"] = platform.node()
         system_info["os_family"] = os_family
@@ -46,8 +103,7 @@ class Hardware:
         system_info["processor"] = platform.processor()
         system_info["machine"] = platform.machine()
         system_info["architecture"] = platform.architecture()[0]
-
-        system_info["cpu_cores"] = str(platform.os.cpu_count())
+        system_info["cpu_cores"] = str(platform.os.cpu_count())  # type: ignore exits
         return system_info
 
     def register(self):
