@@ -106,6 +106,18 @@ class Hardware:
                 **self.get_windows_cpu_values(),
             }
 
+        system_info["name"] = platform.node()
+        system_info["os_family"] = os_family
+        system_info["os_release"] = platform.release()
+        system_info["os_version"] = platform.version()
+        system_info["platform"] = platform.platform()
+        system_info["processor"] = platform.processor()
+        system_info["machine"] = platform.machine()
+        system_info["architecture"] = platform.architecture()[0]
+
+        system_info["cpu_cores"] = str(platform.os.cpu_count())
+        return system_info
+
     def register(self):
         system_info = self.get_system_info()
         mutation = gql(
