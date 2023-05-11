@@ -234,6 +234,14 @@ def example_fine_tune_using_pytorch():
         num_training_steps=num_training_steps,
     )
 
+    print("size dataset_for_training:", len(tokenized_datasets))
+    print("size small_train_dataset:", len(small_train_dataset))
+    print("size small_eval_dataset:", len(small_train_dataset))
+    print("size train_dataloader:", len(train_dataloader))
+    print("num_epochs:", num_epochs)
+    print("num_training_steps:", num_training_steps)
+    # exit()
+
     model.to(device)
 
     print("Start training")
@@ -241,7 +249,9 @@ def example_fine_tune_using_pytorch():
 
     model.train()
     for epoch in range(num_epochs):
+        print("on epoch: ", epoch)
         for batch in train_dataloader:
+            print("on batch: ", batch)
             batch = {k: v.to(device) for k, v in batch.items()}
             outputs = model(**batch)
             loss = outputs.loss
@@ -266,10 +276,6 @@ def example_fine_tune_using_pytorch():
 
     output = metric.compute()
     print(output)
-
-    import ipdb
-
-    ipdb.set_trace()
 
     torch.save(model.state_dict(), "yelp-reviews-bert.pt")
 
