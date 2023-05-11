@@ -22,7 +22,7 @@ def create_session(
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": f"spice/{spice.__version__}",
+        "x-spice-agent": f"spice/{spice.__version__}",
     }
     if token:
         headers["Authorization"] = f"Token {token}"
