@@ -1,6 +1,6 @@
 from gql import gql
 
-from ..utils.config import get_config_filepath, read_config_file, update_config_file
+from ..utils.config import read_config_file, update_config_file
 
 
 class Auth:
@@ -39,4 +39,3 @@ class Auth:
         else:
             full_config[host] = new_host_config
         update_config_file(new_config=full_config)
-        return get_config_filepath()

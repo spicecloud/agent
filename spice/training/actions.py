@@ -5,18 +5,41 @@ import platform
 import ssl
 import sys
 
+from datasets import load_dataset
 from gql import gql
 import pika
 from pika.exceptions import AMQPConnectionError, ConnectionClosedByBroker
 from retry import retry
+from torch.mps import empty_cache
+from tqdm.auto import tqdm
+from transformers import (  # noqa
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    get_scheduler,
+)
+
+from spice.utils.config import (
+    SPICE_TRAINING_FILEPATH,
+    read_config_file,
+    update_config_file,
+)
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import torch  # noqa
+from torch.optim import AdamW  # noqa
+from torch.utils.data import DataLoader  # noqa
 import transformers  # noqa
-from transformers.pipelines.base import PipelineException  # noqa
 
 LOGGER = logging.getLogger(__name__)
+
+ACTIVE_TRAINING_ROUND_STEP_STATUSES = [
+    "CLAIMED",
+    "DOWNLOADING_MODEL",
+    "DOWNLOADING_DATASET",
+    "TRAINING",
+    "UPLOADING_STEP_MODEL",
+]
 
 
 class Training:
@@ -45,6 +68,7 @@ class Training:
         # https://pytorch.org/docs/master/notes/mps.html
         if os_family == "Darwin" and torch.backends.mps.is_available():  # type: ignore
             device = torch.device("mps")
+            empty_cache()
             if self.spice.DEBUG:
                 print("Using MPS device.")
         else:
@@ -83,12 +107,13 @@ class Training:
 
         return device
 
-    def _obtain_training_round_step(self, training_round_step_id: str):
+    def _claim_training_round_step(self, training_round_step_id: str):
         mutation = gql(
             """
-            mutation obtainTrainingRoundStep($trainingRoundStepId: String!) {
-                obtainTrainingRoundStep(trainingRoundStepId: $trainingRoundStepId) {
+            mutation claimTrainingRoundStep($trainingRoundStepId: String!) {
+                claimTrainingRoundStep(trainingRoundStepId: $trainingRoundStepId) {
                     id
+                    status
                     baseModel
                     baseModelRevision
                     baseDatasetRepoId
@@ -105,7 +130,7 @@ class Training:
         result = self.spice.session.execute(mutation, variable_values=variables)
         return result
 
-    def run_training_callback(self, channel, method, properties, body):
+    def _claim_training_round_step_callback(self, channel, method, properties, body):
         print(" [*] Processing message.")
         data = json.loads(body.decode("utf-8"))
         training_round_step_id = data["training_round_step_id"]
@@ -113,11 +138,24 @@ class Training:
             raise Exception(
                 f'No training_round_step_id found in message body: {body.decode("utf-8")}'  # noqa
             )
-        result = self._obtain_training_round_step(
+        result = self._claim_training_round_step(
             training_round_step_id=training_round_step_id
         )
         print(" [*] Obtained training round step.")
-        print(result)
+        update_config_file(
+            filepath=SPICE_TRAINING_FILEPATH,
+            new_config=result["claimTrainingRoundStep"],
+        )
+
+        if channel.is_open:
+            channel.basic_ack(delivery_tag=method.delivery_tag)
+        else:
+            print(" [*] Channel closed already. Cannot ack message.")
+
+        print(" [*] Stopping worker...")
+        if self.channel:
+            self.channel.stop_consuming()
+            self.channel.close()
 
     def _create_channel(self):
         credentials = pika.PlainCredentials(
@@ -153,14 +191,13 @@ class Training:
         # self.channel.queue_declare("inference", durable=True, auto_delete=False)
         self.channel.basic_consume(
             queue="default",
-            on_message_callback=self.run_training_callback,
-            auto_ack=True,
+            on_message_callback=self._claim_training_round_step_callback,
         )
         try:
             print(" [*] Waiting for messages. To exit press CTRL+C")
             self.channel.start_consuming()
         except KeyboardInterrupt:
-            print(" [*] Stopping worker...")
+            print(" [*] Stopping RabbitMQ consumer...")
             if self.channel:
                 self.channel.stop_consuming()
                 self.channel.close()
@@ -180,7 +217,113 @@ class Training:
             self.spice.hardware.check_in_http(is_available=False)
             raise exception
 
+    def train(self):
+        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+
+        training_round_step_id = config.get("id")
+        base_model = config.get("baseModel")
+        base_model_revision = config.get("baseModelRevision")
+        dataset_repo_id = config.get("baseDatasetRepoId")
+        dataset_repo_revision = config.get("baseDatasetRepoRevision")
+        dataset_starting_row = config.get("datasetStartingRow")
+        dataset_ending_row = config.get("datasetEndingRow")
+        training_epochs = config.get("trainingEpochs")
+        training_batch_size = config.get("trainingBatchSize")
+
+        # get dataset
+        print("Loading dataset...")
+        split_string = f"train[{dataset_starting_row}:{dataset_ending_row}]"
+        dataset = load_dataset(
+            path=dataset_repo_id, revision=dataset_repo_revision, split=split_string
+        )
+
+        # get tokenizer from base model bert-base-cased
+        print("Loading tokenizer...")
+        tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name_or_path=base_model, revision=base_model_revision
+        )
+
+        # create a tokenize function that will tokenize the dataset
+        def tokenize_function(examples):
+            return tokenizer(examples["text"], padding="max_length", truncation=True)
+
+        print("Tokenizing dataset...")
+        tokenized_datasets = dataset.map(tokenize_function, batched=True)
+
+        # Remove the text column because the model does not accept raw text as an input
+        tokenized_datasets = tokenized_datasets.remove_columns(["text"])
+        # Rename the label column to labels because
+        # the model expects the argument to be named labels
+        tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
+        # Set the format of the dataset to return PyTorch tensors instead of lists
+        tokenized_datasets.set_format("torch")
+
+        # Create a DataLoader for your training and test datasets
+        # so you can iterate over batches of data
+        print("Creating dataloaders...")
+        train_dataloader = DataLoader(
+            tokenized_datasets, shuffle=True, batch_size=training_batch_size
+        )
+
+        # Load your model with the number of expected labels:
+        print("Loading base model...")
+        model = AutoModelForSequenceClassification.from_pretrained(
+            base_model, num_labels=5
+        )
+
+        optimizer = AdamW(model.parameters(), lr=5e-5)
+
+        num_training_steps = training_epochs * len(train_dataloader)
+        lr_scheduler = get_scheduler(
+            name="linear",
+            optimizer=optimizer,
+            num_warmup_steps=0,
+            num_training_steps=num_training_steps,
+        )
+
+        model.to(self.device)
+
+        print("Start training")
+        progress_bar = tqdm(range(num_training_steps))
+
+        model.train()
+        for epoch in range(training_epochs):
+            for batch in train_dataloader:
+                batch = {k: v.to(self.device) for k, v in batch.items()}
+                outputs = model(**batch)
+                loss = outputs.loss
+                loss.backward()
+
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
+                progress_bar.update(1)
+
+        torch.save(model.state_dict(), f"split-{training_round_step_id}.pt")
+
+        print("Complete!")
+
     def worker(self):
         print(f" [*] Using Device: {self.device} for training.")
-        self.spice.hardware.check_in_http(is_available=True)
-        self._consume()
+        try:
+            while True:
+                self.spice.hardware.check_in_http(is_available=True)
+
+                # first check if this machine picked up a training round already
+                config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+                has_step_to_complete = (
+                    config.get("id", None) is not None
+                    and config.get("status", None)
+                    in ACTIVE_TRAINING_ROUND_STEP_STATUSES
+                )
+                if not has_step_to_complete:
+                    self._consume()
+                self.train()
+
+        except KeyboardInterrupt:
+            print(" [*] Stopping worker...")
+            if self.channel:
+                self.channel.stop_consuming()
+                self.channel.close()
+            self.spice.hardware.check_in_http(is_available=False)
+            sys.exit()
