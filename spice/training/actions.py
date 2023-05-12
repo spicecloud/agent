@@ -142,7 +142,7 @@ class Training:
             raise Exception(
                 f'No training_round_step_id found in message body: {body.decode("utf-8")}'  # noqa
             )
-        result = self._update_training_round_step(
+        self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="CLAIMED"
         )
         print(" [*] Obtained training round step.")
