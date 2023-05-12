@@ -107,11 +107,11 @@ class Training:
 
         return device
 
-    def _claim_training_round_step(self, training_round_step_id: str):
+    def _update_training_round_step(self, training_round_step_id: str, status: str):
         mutation = gql(
             """
-            mutation claimTrainingRoundStep($trainingRoundStepId: String!) {
-                claimTrainingRoundStep(trainingRoundStepId: $trainingRoundStepId) {
+            mutation updateTrainingRoundStepFromHardware($trainingRoundStepId: String!, $status: String!) {
+                updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status) {
                     id
                     status
                     baseModel
@@ -126,8 +126,12 @@ class Training:
             }
         """  # noqa
         )
-        variables = {"trainingRoundStepId": training_round_step_id}
+        variables = {"trainingRoundStepId": training_round_step_id, "status": status}
         result = self.spice.session.execute(mutation, variable_values=variables)
+        update_config_file(
+            filepath=SPICE_TRAINING_FILEPATH,
+            new_config=result["updateTrainingRoundStepFromHardware"],
+        )
         return result
 
     def _claim_training_round_step_callback(self, channel, method, properties, body):
@@ -138,14 +142,10 @@ class Training:
             raise Exception(
                 f'No training_round_step_id found in message body: {body.decode("utf-8")}'  # noqa
             )
-        result = self._claim_training_round_step(
-            training_round_step_id=training_round_step_id
+        result = self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="CLAIMED"
         )
         print(" [*] Obtained training round step.")
-        update_config_file(
-            filepath=SPICE_TRAINING_FILEPATH,
-            new_config=result["claimTrainingRoundStep"],
-        )
 
         if channel.is_open:
             channel.basic_ack(delivery_tag=method.delivery_tag)
@@ -185,7 +185,7 @@ class Training:
 
     @retry(AMQPConnectionError, delay=0, jitter=(1, 3))
     def _consume(self):
-        if self.channel is None:
+        if self.channel is None or self.channel.is_closed:
             self._create_channel()
 
         # self.channel.queue_declare("inference", durable=True, auto_delete=False)
@@ -201,6 +201,7 @@ class Training:
             if self.channel:
                 self.channel.stop_consuming()
                 self.channel.close()
+                self.channel = None
             self.spice.hardware.check_in_http(is_available=False)
             sys.exit()
         except ConnectionClosedByBroker:
@@ -208,19 +209,25 @@ class Training:
             if self.channel:
                 self.channel.stop_consuming()
                 self.channel.close()
+                self.channel = None
             self.spice.hardware.check_in_http(is_available=False)
         except Exception as exception:
             print(f"Exception: {exception}")
             if self.channel:
                 self.channel.stop_consuming()
                 self.channel.close()
+                self.channel = None
             self.spice.hardware.check_in_http(is_available=False)
             raise exception
 
     def train(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
-
         training_round_step_id = config.get("id")
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="CLAIMED"
+        )
+        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+
         base_model = config.get("baseModel")
         base_model_revision = config.get("baseModelRevision")
         dataset_repo_id = config.get("baseDatasetRepoId")
@@ -232,6 +239,10 @@ class Training:
 
         # get dataset
         print("Loading dataset...")
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="DOWNLOADING_DATASET"
+        )
+
         split_string = f"train[{dataset_starting_row}:{dataset_ending_row}]"
         dataset = load_dataset(
             path=dataset_repo_id, revision=dataset_repo_revision, split=split_string
@@ -270,6 +281,9 @@ class Training:
         model = AutoModelForSequenceClassification.from_pretrained(
             base_model, num_labels=5
         )
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="DOWNLOADING_DATASET"
+        )
 
         optimizer = AdamW(model.parameters(), lr=5e-5)
 
@@ -284,6 +298,9 @@ class Training:
         model.to(self.device)
 
         print("Start training")
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="TRAINING"
+        )
         progress_bar = tqdm(range(num_training_steps))
 
         model.train()
@@ -301,6 +318,9 @@ class Training:
 
         torch.save(model.state_dict(), f"split-{training_round_step_id}.pt")
 
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="COMPLETE"
+        )
         print("Complete!")
 
     def worker(self):
@@ -325,5 +345,6 @@ class Training:
             if self.channel:
                 self.channel.stop_consuming()
                 self.channel.close()
+                self.channel = None
             self.spice.hardware.check_in_http(is_available=False)
             sys.exit()
