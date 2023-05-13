@@ -2,11 +2,11 @@ import sentry_sdk
 from sentry_sdk import set_user
 
 from spice.__version__ import __version__
-
 from spice.auth.actions import Auth
 from spice.graphql.sdk import create_session
 from spice.hardware.actions import Hardware
 from spice.inference.actions import Inference
+from spice.training.actions import Training
 from spice.utils.config import read_config_file
 
 
@@ -51,3 +51,4 @@ class Spice:
         self.auth = Auth(self)
         self.hardware = Hardware(self)
         self.inference = Inference(self)
+        self.training = Training(self)

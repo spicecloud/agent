@@ -5,6 +5,7 @@ import click
 
 from spice.auth.actions import Auth
 
+from ..utils.config import SPICE_HOSTS_FILEPATH
 from ..utils.printer import print_result
 
 
@@ -63,10 +64,7 @@ def config_command(context, username: str, transport: str):
         )
 
     auth = Auth(spice=None)
-    config_path = auth.setup_config(
-        username=username, token=token, host=host, transport=transport
-    )
-    message = (
-        f"Config created at '{config_path}' for user '{username}' on host '{host}'"
-    )
+    auth.setup_config(username=username, token=token, host=host, transport=transport)
+    message = f"Config created at '{SPICE_HOSTS_FILEPATH}' for user '{username}' on \
+        host '{host}'"
     print_result(message=message, context=context, fg="green")

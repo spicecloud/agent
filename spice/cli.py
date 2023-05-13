@@ -1,14 +1,15 @@
 import os
 import sys
-from spice.__version__ import __version__
 
 import click
 
+from spice.__version__ import __version__
 from spice.client import Spice
 
 from .auth.commands import config_command, whoami_command
 from .hardware.commands import cli as hardware_cli
 from .inference.commands import cli as inference_cli
+from .training.commands import cli as training_cli
 
 
 @click.group()
@@ -56,6 +57,7 @@ cli.add_command(config_command, "config")
 cli.add_command(whoami_command, "whoami")
 cli.add_command(hardware_cli, "hardware")
 cli.add_command(inference_cli, "inference")
+cli.add_command(training_cli, "training")
 
 
 if __name__ == "__main__":
