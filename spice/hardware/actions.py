@@ -132,7 +132,7 @@ class Hardware:
         self.spice.host_config["rabbitmq_host"] = rabbitmq_host
         self.spice.host_config["rabbitmq_port"] = rabbitmq_port
         self.spice.full_config[self.spice.host] = self.spice.host_config
-        update_config_file(self.spice.full_config)
+        update_config_file(new_config=self.spice.full_config)
         return result
 
     def check_in_http(
