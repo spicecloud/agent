@@ -1,10 +1,16 @@
+import hashlib
 import json
 import logging
 import os
+from pathlib import Path
 import platform
 import ssl
 import sys
+import threading
+from typing import Dict, Optional
 
+import boto3
+from boto3.s3.transfer import TransferConfig
 from datasets import load_dataset
 from gql import gql
 import pika
@@ -19,7 +25,9 @@ from transformers import (  # noqa
 )
 
 from spice.utils.config import (
+    SPICE_MODEL_CACHE_FILEPATH,
     SPICE_TRAINING_FILEPATH,
+    create_directory,
     read_config_file,
     update_config_file,
 )
@@ -40,6 +48,27 @@ ACTIVE_TRAINING_ROUND_STEP_STATUSES = [
     "TRAINING",
     "UPLOADING_STEP_MODEL",
 ]
+
+TRAINING_JOB_ID = "test"
+
+
+class ProgressPercentage(object):
+    def __init__(self, filename):
+        self._filename = filename
+        self._size = float(os.path.getsize(filename))
+        self._seen_so_far = 0
+        self._lock = threading.Lock()
+
+    def __call__(self, bytes_amount):
+        # To simplify, assume this is hooked up to a single filename
+        with self._lock:
+            self._seen_so_far += bytes_amount
+            percentage = (self._seen_so_far / self._size) * 100
+            sys.stdout.write(
+                "\r%s  %s / %s  (%.2f%%)"
+                % (self._filename, self._seen_so_far, self._size, percentage)
+            )
+            sys.stdout.flush()
 
 
 class Training:
@@ -220,7 +249,94 @@ class Training:
             self.spice.hardware.check_in_http(is_available=False)
             raise exception
 
-    def train(self):
+    def _create_file(self, file_name: str, file_size: int, file_checksum: str):
+        mutation = gql(
+            """
+            mutation createFile(
+            $fileName: String!
+            $fileSize: Int!
+            $fileChecksum: String!
+            ) {
+                createFile(fileName: $fileName, fileSize: $fileSize, fileChecksum: $fileChecksum) {
+                    id
+                }
+            }
+        """  # noqa
+        )
+        variables = {
+            "fileName": file_name,
+            "fileSize": file_size,
+            "fileChecksum": file_checksum,
+        }
+        result = self.spice.session.execute(mutation, variable_values=variables)
+        return result.get("createFile").get("id")
+
+    def _update_file_status(
+        self,
+        file_id: str,
+        is_uploading: Optional[bool] = None,
+        is_complete: Optional[bool] = None,
+    ):
+        mutation = gql(
+            """
+            mutation updateFileStatus($fileId: String!, $isUploading: Boolean, $isComplete: Boolean) {
+                updateFileStatus(fileId: $fileId, isUploading: $isUploading, isComplete: $isComplete) {
+                    id
+                }
+            }
+        """  # noqa
+        )
+        variables: Dict[str, str | bool] = {
+            "fileId": file_id,
+        }
+        if is_uploading is not None:
+            variables["isUploading"] = is_uploading
+        if is_complete is not None:
+            variables["isComplete"] = is_complete
+
+        result = self.spice.session.execute(mutation, variable_values=variables)
+        return result
+
+    def upload_model(self, training_job_id: str, model_path: Path):
+        if model_path.exists() is False:
+            raise Exception(f"Model path {model_path} does not exist.")
+
+        file_size = model_path.stat().st_size
+        if file_size == 0:
+            raise Exception(f"Model path {model_path} is empty.")
+
+        file_checksum = hashlib.md5(model_path.read_bytes()).hexdigest()
+
+        file_id = self._create_file(
+            file_name=model_path.name,
+            file_size=model_path.stat().st_size,
+            file_checksum=file_checksum,
+        )
+
+        bucket_name = "spice-models"
+        s3_client = boto3.resource("s3")
+        # TODO: configure these values based on the available system properties
+        # if a file is bigger than multipart_threshold, then do multipart upload
+        multipart_threshold = 1024 * 25
+        multipart_chunksize = 1024 * 25
+        max_concurrency = 10
+        config = TransferConfig(
+            multipart_threshold=multipart_threshold,
+            max_concurrency=max_concurrency,
+            multipart_chunksize=multipart_chunksize,  # 25MB
+            use_threads=True,
+        )
+        key = f"{training_job_id}/steps/" + model_path.name
+
+        self._update_file_status(file_id=file_id, is_uploading=True, is_complete=True)
+
+        s3_client.Object(bucket_name, key).upload_file(
+            model_path, Config=config, Callback=ProgressPercentage(model_path)
+        )
+
+        self._update_file_status(file_id=file_id, is_uploading=False, is_complete=True)
+
+    def train(self) -> Path:
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config.get("id")
         self._update_training_round_step(
@@ -316,12 +432,17 @@ class Training:
                 optimizer.zero_grad()
                 progress_bar.update(1)
 
-        torch.save(model.state_dict(), f"split-{training_round_step_id}.pt")
+        # check that the model cache directory exists
+        training_job_dir = SPICE_MODEL_CACHE_FILEPATH.joinpath(TRAINING_JOB_ID)
+        create_directory(filepath=training_job_dir)
+        model_path = training_job_dir.joinpath(f"{training_round_step_id}.pt")
+        torch.save(model.state_dict(), model_path)
 
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="COMPLETE"
         )
         print("Complete!")
+        return model_path
 
     def worker(self):
         print(f" [*] Using Device: {self.device} for training.")
@@ -338,7 +459,8 @@ class Training:
                 )
                 if not has_step_to_complete:
                     self._consume()
-                self.train()
+                model_path = self.train()
+                self.upload_model(model_path)
 
         except KeyboardInterrupt:
             print(" [*] Stopping worker...")
