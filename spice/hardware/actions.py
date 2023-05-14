@@ -53,8 +53,7 @@ class Hardware:
         }
 
     def get_windows_cpu_values(self) -> Dict[str, str]:
-        windows_cpu_csv_command = "cmd.exe /C wmic cpu get\
-              Name, MaxClockSpeed /format:csv"
+        windows_cpu_csv_command = "cmd.exe /C wmic cpu get Name, MaxClockSpeed /format:csv" # noqa
         windows_cpu_csv_output = subprocess.check_output(
             windows_cpu_csv_command.split(" "),
             stderr=subprocess.DEVNULL,
