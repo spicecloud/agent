@@ -124,7 +124,7 @@ class Uploader:
         file_already_uploaded = False
         try:
             # TODO: add a check here that the checksum is the same
-            head_object = s3_client.head_object(Bucket=bucket_name, Key=key)
+            s3_client.head_object(Bucket=bucket_name, Key=key)
             file_already_uploaded = True
             print("File already uploaded.")
         except botocore.exceptions.ClientError as exception:
