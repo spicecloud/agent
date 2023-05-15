@@ -405,8 +405,8 @@ class Training:
             training_round_step_id=training_round_step_id, status="TRAINING_COMPLETE"
         )
 
-        # try to close up dataset
-        dataset = None
+        # clear the cache
+        dataset.cleanup_cache_files()
 
     def worker(self):
         try:
