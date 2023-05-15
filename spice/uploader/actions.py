@@ -123,7 +123,7 @@ class Uploader:
             )
 
         if not file_id:
-            raise Exception(f"No file_id found or provided.")
+            raise Exception("No file_id found or provided.")
 
         s3_access_values = self._get_access()
         s3_resource = boto3.resource(
