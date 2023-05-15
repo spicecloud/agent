@@ -20,6 +20,7 @@ retry = "^0.9.2"
 torch = "^2.0.0"
 sentry-sdk = "^1.22.2"
 datasets = "^2.12.0"
+boto3 = "^1.26.133"
 
 [tool.poetry.dev-dependencies]
 black = "^23.3.0"
