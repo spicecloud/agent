@@ -2,15 +2,11 @@ import hashlib
 import json
 import logging
 import os
-from pathlib import Path
 import platform
 import ssl
 import sys
-import threading
-from typing import Dict, Optional
+from typing import Optional
 
-import boto3
-from boto3.s3.transfer import TransferConfig
 from datasets import load_dataset
 from gql import gql
 import pika
@@ -48,27 +44,13 @@ ACTIVE_TRAINING_ROUND_STEP_STATUSES = [
     "TRAINING",
     "UPLOADING_STEP_MODEL",
 ]
+ACTIVE_UPLOADING_STEP_STATUSES = [
+    "TRAINING_COMPLETE",
+    "REQUEST_UPLOAD",
+    "UPLOADING",
+]
 
-TRAINING_JOB_ID = "test"
-
-
-class ProgressPercentage(object):
-    def __init__(self, filename):
-        self._filename = filename
-        self._size = float(os.path.getsize(filename))
-        self._seen_so_far = 0
-        self._lock = threading.Lock()
-
-    def __call__(self, bytes_amount):
-        # To simplify, assume this is hooked up to a single filename
-        with self._lock:
-            self._seen_so_far += bytes_amount
-            percentage = (self._seen_so_far / self._size) * 100
-            sys.stdout.write(
-                "\r%s  %s / %s  (%.2f%%)"
-                % (self._filename, self._seen_so_far, self._size, percentage)
-            )
-            sys.stdout.flush()
+MODEL_BUCKET_NAME = "spice-models"
 
 
 class Training:
@@ -136,11 +118,13 @@ class Training:
 
         return device
 
-    def _update_training_round_step(self, training_round_step_id: str, status: str):
+    def _update_training_round_step(
+        self, training_round_step_id: str, status: str, file_id: Optional[str] = None
+    ):
         mutation = gql(
             """
-            mutation updateTrainingRoundStepFromHardware($trainingRoundStepId: String!, $status: String!) {
-                updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status) {
+            mutation updateTrainingRoundStepFromHardware($trainingRoundStepId: String!, $status: String!, $fileId: String) {
+                updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status, fileId: $fileId) {
                     id
                     status
                     baseModel
@@ -151,11 +135,18 @@ class Training:
                     datasetEndingRow
                     trainingEpochs
                     trainingBatchSize
+                    trainingRound {
+                        id
+                    }
                 }
             }
         """  # noqa
         )
-        variables = {"trainingRoundStepId": training_round_step_id, "status": status}
+        variables = {"trainingRoundStepId": training_round_step_id}
+        if status is not None:
+            variables["status"] = status
+        if file_id is not None:
+            variables["fileId"] = file_id
         result = self.spice.session.execute(mutation, variable_values=variables)
         update_config_file(
             filepath=SPICE_TRAINING_FILEPATH,
@@ -249,109 +240,84 @@ class Training:
             self.spice.hardware.check_in_http(is_available=False)
             raise exception
 
-    def _create_file(self, file_name: str, file_size: int, file_checksum: str):
-        mutation = gql(
-            """
-            mutation createFile(
-            $fileName: String!
-            $fileSize: Int!
-            $fileChecksum: String!
-            ) {
-                createFile(fileName: $fileName, fileSize: $fileSize, fileChecksum: $fileChecksum) {
-                    id
-                }
-            }
-        """  # noqa
+    def upload_models(self):
+        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+        training_round_step_id = config["id"]
+        training_round_id = config["trainingRound"]["id"]
+        training_round_directory = f"{training_round_id}/steps/"
+
+        # round_id_step_id will be in form: [uuid]/steps/[uuid]
+        # round_id_step_id is used for finding the step model in the cache
+        # and as the key in S3
+        bucket_key = f"{training_round_id}/steps/{training_round_step_id}"
+
+        # model_cache_for_training_round contains all the step models
+        # for this particular training round
+        model_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            training_round_directory
         )
-        variables = {
-            "fileName": file_name,
-            "fileSize": file_size,
-            "fileChecksum": file_checksum,
-        }
-        result = self.spice.session.execute(mutation, variable_values=variables)
-        return result.get("createFile").get("id")
 
-    def _update_file_status(
-        self,
-        file_id: str,
-        is_uploading: Optional[bool] = None,
-        is_complete: Optional[bool] = None,
-    ):
-        mutation = gql(
-            """
-            mutation updateFileStatus($fileId: String!, $isUploading: Boolean, $isComplete: Boolean) {
-                updateFileStatus(fileId: $fileId, isUploading: $isUploading, isComplete: $isComplete) {
-                    id
-                }
-            }
-        """  # noqa
+        # step_model_path IS the trained step model
+        step_model_path = model_cache_for_training_round.joinpath(
+            f"{training_round_step_id}.pt"
         )
-        variables: Dict[str, str | bool] = {
-            "fileId": file_id,
-        }
-        if is_uploading is not None:
-            variables["isUploading"] = is_uploading
-        if is_complete is not None:
-            variables["isComplete"] = is_complete
 
-        result = self.spice.session.execute(mutation, variable_values=variables)
-        return result
-
-    def upload_model(self, training_job_id: str, model_path: Path):
-        if model_path.exists() is False:
-            raise Exception(f"Model path {model_path} does not exist.")
-
-        file_size = model_path.stat().st_size
-        if file_size == 0:
-            raise Exception(f"Model path {model_path} is empty.")
-
-        file_checksum = hashlib.md5(model_path.read_bytes()).hexdigest()
-
-        file_id = self._create_file(
-            file_name=model_path.name,
-            file_size=model_path.stat().st_size,
+        # create the "file" and attach it to the training round step
+        file_checksum = hashlib.md5(step_model_path.read_bytes()).hexdigest()
+        file_id = self.spice.uploader._create_file(
+            file_name=step_model_path.name,
+            file_size=step_model_path.stat().st_size,
             file_checksum=file_checksum,
         )
-
-        bucket_name = "spice-models"
-        s3_client = boto3.resource("s3")
-        # TODO: configure these values based on the available system properties
-        # if a file is bigger than multipart_threshold, then do multipart upload
-        multipart_threshold = 1024 * 25
-        multipart_chunksize = 1024 * 25
-        max_concurrency = 10
-        config = TransferConfig(
-            multipart_threshold=multipart_threshold,
-            max_concurrency=max_concurrency,
-            multipart_chunksize=multipart_chunksize,  # 25MB
-            use_threads=True,
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id,
+            status="REQUEST_UPLOAD",
+            file_id=file_id,
         )
-        key = f"{training_job_id}/steps/" + model_path.name
-
-        self._update_file_status(file_id=file_id, is_uploading=True, is_complete=True)
-
-        s3_client.Object(bucket_name, key).upload_file(
-            model_path, Config=config, Callback=ProgressPercentage(model_path)
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id,
+            status="UPLOADING",
         )
 
-        self._update_file_status(file_id=file_id, is_uploading=False, is_complete=True)
+        self.spice.uploader.upload_file(
+            bucket_name=MODEL_BUCKET_NAME,
+            key=bucket_key,
+            filepath=step_model_path,
+            file_id=file_id,
+        )
 
-    def train(self) -> Path:
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="COMPLETE"
+        )
+
+    def train(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
-        training_round_step_id = config.get("id")
+        training_round_step_id = config["id"]
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="CLAIMED"
         )
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
 
-        base_model = config.get("baseModel")
-        base_model_revision = config.get("baseModelRevision")
-        dataset_repo_id = config.get("baseDatasetRepoId")
-        dataset_repo_revision = config.get("baseDatasetRepoRevision")
-        dataset_starting_row = config.get("datasetStartingRow")
-        dataset_ending_row = config.get("datasetEndingRow")
-        training_epochs = config.get("trainingEpochs")
-        training_batch_size = config.get("trainingBatchSize")
+        base_model = config["baseModel"]
+        base_model_revision = config["baseModelRevision"]
+        dataset_repo_id = config["baseDatasetRepoId"]
+        dataset_repo_revision = config["baseDatasetRepoRevision"]
+        dataset_starting_row = config["datasetStartingRow"]
+        dataset_ending_row = config["datasetEndingRow"]
+        training_epochs = config["trainingEpochs"]
+        training_batch_size = config["trainingBatchSize"]
+        training_round_id = config["trainingRound"]["id"]
+
+        # create the folder for the new training round
+        # where the step model will be saved
+        training_round_directory = f"{training_round_id}/steps/"
+        model_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            training_round_directory
+        )
+        step_model_path = model_cache_for_training_round.joinpath(
+            f"{training_round_step_id}.pt"
+        )
+        create_directory(filepath=model_cache_for_training_round)
 
         # get dataset
         print("Loading dataset...")
@@ -433,34 +399,38 @@ class Training:
                 progress_bar.update(1)
 
         # check that the model cache directory exists
-        training_job_dir = SPICE_MODEL_CACHE_FILEPATH.joinpath(TRAINING_JOB_ID)
-        create_directory(filepath=training_job_dir)
-        model_path = training_job_dir.joinpath(f"{training_round_step_id}.pt")
-        torch.save(model.state_dict(), model_path)
+        torch.save(model.state_dict(), step_model_path)
 
         self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="COMPLETE"
+            training_round_step_id=training_round_step_id, status="TRAINING_COMPLETE"
         )
-        print("Complete!")
-        return model_path
+
+        # try to close up dataset
+        dataset = None
 
     def worker(self):
-        print(f" [*] Using Device: {self.device} for training.")
         try:
             while True:
                 self.spice.hardware.check_in_http(is_available=True)
 
                 # first check if this machine picked up a training round already
                 config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
-                has_step_to_complete = (
-                    config.get("id", None) is not None
-                    and config.get("status", None)
-                    in ACTIVE_TRAINING_ROUND_STEP_STATUSES
-                )
-                if not has_step_to_complete:
+                has_step_to_complete = False
+                has_model_to_upload = False
+                if config.get("id", None) is not None:
+                    step_status = config.get("status", None)
+                    if step_status in ACTIVE_TRAINING_ROUND_STEP_STATUSES:
+                        has_step_to_complete = True
+                    elif step_status in ACTIVE_UPLOADING_STEP_STATUSES:
+                        has_model_to_upload = True
+
+                if not has_step_to_complete and not has_model_to_upload:
                     self._consume()
-                model_path = self.train()
-                self.upload_model(model_path)
+                if has_step_to_complete:
+                    print(f" [*] Using Device: {self.device} for training.")
+                    self.train()
+                if has_model_to_upload:
+                    self.upload_models()
 
         except KeyboardInterrupt:
             print(" [*] Stopping worker...")

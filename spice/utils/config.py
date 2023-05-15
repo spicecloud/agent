@@ -5,7 +5,7 @@ from typing import Dict
 home_directory = Path.home()
 SPICE_HOSTS_FILEPATH = Path(home_directory / ".config" / "spice" / "hosts.json")
 SPICE_TRAINING_FILEPATH = Path(home_directory / ".config" / "spice" / "training.json")
-SPICE_MODEL_CACHE_FILEPATH = Path(home_directory / ".spice" / "models")
+SPICE_MODEL_CACHE_FILEPATH = Path(home_directory / ".cache" / "spice" / "models")
 
 
 def create_directory(filepath: Path = SPICE_MODEL_CACHE_FILEPATH):
