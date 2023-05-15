@@ -33,6 +33,23 @@ class Uploader:
     def __init__(self, spice) -> None:
         self.spice = spice
 
+    def _get_access(self):
+        query = gql(
+            """
+            query getAgentUploaderAccess {
+                getAgentUploaderAccess {
+                    accessKeyId
+                    secretAccessKey
+                }
+            }
+        """  # noqa
+        )
+        result = self.spice.session.execute(query)
+        return {
+            "access_key_id": result["getAgentUploaderAccess"]["accessKeyId"],
+            "secret_access_key": result["getAgentUploaderAccess"]["secretAccessKey"],
+        }
+
     def _create_file(self, file_name: str, file_size: int, file_checksum: str):
         mutation = gql(
             """
@@ -105,8 +122,21 @@ class Uploader:
                 file_checksum=file_checksum,
             )
 
-        s3_resource = boto3.resource("s3")
-        s3_client = boto3.client("s3")
+        if not file_id:
+            raise Exception(f"No file_id found or provided.")
+
+        s3_access_values = self._get_access()
+        s3_resource = boto3.resource(
+            "s3",
+            aws_access_key_id=s3_access_values["access_key_id"],
+            aws_secret_access_key=s3_access_values["secret_access_key"],
+        )
+        s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=s3_access_values["access_key_id"],
+            aws_secret_access_key=s3_access_values["secret_access_key"],
+        )
+
         # TODO: configure these values based on the available system properties
         # if a file is bigger than multipart_threshold, then do multipart upload
         multipart_threshold = 1024 * 100
@@ -123,18 +153,27 @@ class Uploader:
 
         file_already_uploaded = False
         try:
-            # TODO: add a check here that the checksum is the same
-            s3_client.head_object(Bucket=bucket_name, Key=key)
-            file_already_uploaded = True
-            print("File already uploaded.")
+            head_object = s3_client.head_object(Bucket=bucket_name, Key=key)
+
+            # TODO: add a check here that the checksum is the same as well
+            if (
+                head_object["ResponseMetadata"]["HTTPHeaders"]["content-length"]
+                == file_size
+            ):
+                file_already_uploaded = True
+                print("File already uploaded.")
+            else:
+                print("File in bucket has a file size mismatch. Reuploading.")
         except botocore.exceptions.ClientError as exception:
-            if exception.response["Error"]["Code"] == "404":
+            if exception.response["Error"]["Code"] in ["404", "403"]:
                 # The key does not exist and we should upload the file
                 pass
-            elif exception.response["Error"]["Code"] == 403:
-                # Unauthorized, including invalid bucket
-                raise exception
+            # elif exception.response["Error"]["Code"] == "403":
+            #     # Unauthorized, including invalid bucket
+            #     # raise exception
+            #     raise Exception("Unauthorized to view bucket.")
             else:
+                print("Unhandled exception.")
                 raise exception
 
         if (file_already_uploaded is False) or (
