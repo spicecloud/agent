@@ -1,5 +1,4 @@
 import hashlib
-import requests
 import json
 import logging
 import os
@@ -14,6 +13,7 @@ from gql import gql
 import numpy as np
 import pika
 from pika.exceptions import AMQPConnectionError, ConnectionClosedByBroker
+import requests
 from retry import retry
 import torch  # noqa
 from torch.mps import empty_cache
