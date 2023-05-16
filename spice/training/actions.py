@@ -1,5 +1,4 @@
 import hashlib
-import boto3
 import requests
 import json
 import logging
