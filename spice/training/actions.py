@@ -8,16 +8,25 @@ import sys
 from typing import Optional
 
 from datasets import load_dataset
+import evaluate
 from gql import gql
+import numpy as np
 import pika
 from pika.exceptions import AMQPConnectionError, ConnectionClosedByBroker
 from retry import retry
+import torch  # noqa
 from torch.mps import empty_cache
-from tqdm.auto import tqdm
+from torch.optim import AdamW  # noqa
+from torch.utils.data import DataLoader  # noqa
 from transformers import (  # noqa
+    AutoImageProcessor,
+    AutoModel,
     AutoModelForSequenceClassification,
     AutoTokenizer,
+    Trainer,
+    TrainingArguments,
     get_scheduler,
+    pipeline,
 )
 
 from spice.utils.config import (
@@ -44,11 +53,17 @@ ACTIVE_TRAINING_ROUND_STEP_STATUSES = [
     "TRAINING",
     "UPLOADING_STEP_MODEL",
 ]
-ACTIVE_UPLOADING_STEP_STATUSES = [
+ACTIVE_TESTING_STEP_STATUSES = [
     "TRAINING_COMPLETE",
+    "DOWNLOADING_TESTING_DATASET",
+    "TESTING",
+]
+ACTIVE_UPLOADING_STEP_STATUSES = [
+    "TESTING_COMPLETE",
     "REQUEST_UPLOAD",
     "UPLOADING",
 ]
+
 
 MODEL_BUCKET_NAME = "spice-models"
 
@@ -290,7 +305,7 @@ class Training:
             training_round_step_id=training_round_step_id, status="COMPLETE"
         )
 
-    def train(self):
+    def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
         self._update_training_round_step(
@@ -304,19 +319,15 @@ class Training:
         dataset_repo_revision = config["baseDatasetRepoRevision"]
         dataset_starting_row = config["datasetStartingRow"]
         dataset_ending_row = config["datasetEndingRow"]
-        training_epochs = config["trainingEpochs"]
+        config["trainingEpochs"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
-        testing_batch_size = 32  # need to put this in config
 
         # create the folder for the new training round
         # where the step model will be saved
         training_round_directory = f"{training_round_id}/steps/"
         model_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
             training_round_directory
-        )
-        step_model_path = model_cache_for_training_round.joinpath(
-            f"{training_round_step_id}.pt"
         )
         create_directory(filepath=model_cache_for_training_round)
 
@@ -327,15 +338,8 @@ class Training:
         )
 
         split_string = f"train[{dataset_starting_row}:{dataset_ending_row}]"
-        dataset = load_dataset(
+        train_dataset = load_dataset(
             path=dataset_repo_id, revision=dataset_repo_revision, split=split_string
-        )
-
-        test_split_string = "test[:]"
-        test_dataset = load_dataset(
-            path=dataset_repo_id,
-            revision=dataset_repo_revision,
-            split=test_split_string,
         )
 
         # get tokenizer from base model bert-base-cased
@@ -349,116 +353,156 @@ class Training:
             return tokenizer(examples["text"], padding="max_length", truncation=True)
 
         print("Tokenizing dataset...")
-        tokenized_datasets = dataset.map(tokenize_function, batched=True)
-        tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
+        tokenized_datasets = train_dataset.map(tokenize_function, batched=True)
 
         # Remove the text column because the model does not accept raw text as an input
         tokenized_datasets = tokenized_datasets.remove_columns(["text"])
-        tokenized_test_datasets = tokenized_test_datasets.remove_columns(["text"])
+
         # Rename the label column to labels because
         # the model expects the argument to be named labels
         tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
-        tokenized_test_datasets = tokenized_test_datasets.rename_column(
-            "label", "labels"
-        )
+
         # Set the format of the dataset to return PyTorch tensors instead of lists
         tokenized_datasets.set_format("torch")
-        tokenized_test_datasets.set_format("torch")
-
-        # Create a DataLoader for your training and test datasets
-        # so you can iterate over batches of data
-        print("Creating dataloaders...")
-        train_dataloader = DataLoader(
-            tokenized_datasets, shuffle=True, batch_size=training_batch_size
-        )
-        test_dataloader = DataLoader(
-            # Need to add batch size to training config
-            tokenized_test_datasets,
-            shuffle=False,
-            batch_size=testing_batch_size,
-        )
 
         # Load your model with the number of expected labels:
         print("Loading base model...")
         model = AutoModelForSequenceClassification.from_pretrained(
             base_model, num_labels=5
         )
+
+        training_args = TrainingArguments(
+            output_dir=str(model_cache_for_training_round),
+            evaluation_strategy="no",  # set to "no", set to "epoch" for eval + train
+            num_train_epochs=1,
+            per_device_train_batch_size=training_batch_size,
+            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
+        )
+
+        metric = evaluate.load("accuracy")
+
+        def compute_metrics(eval_pred):
+            logits, labels = eval_pred
+            predictions = np.argmax(logits, axis=-1)
+            return metric.compute(predictions=predictions, references=labels)
+
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=tokenized_datasets,
+            compute_metrics=compute_metrics,
+        )
+
+        trainer.train()
+
+        trainer.save_model(output_dir=str(model_cache_for_training_round))
+
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="TESTING"
+        )
+
+        # clear the cache
+        train_dataset.cleanup_cache_files()
+
+    def test_model(self):
+        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+        training_round_step_id = config["id"]
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="CLAIMED"
+        )
+        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+
+        base_model = config["baseModel"]
+        base_model_revision = config["baseModelRevision"]
+        dataset_repo_id = config["baseDatasetRepoId"]
+        dataset_repo_revision = config["baseDatasetRepoRevision"]
+        config["datasetStartingRow"]
+        config["datasetEndingRow"]
+        training_batch_size = config["trainingBatchSize"]
+        training_round_id = config["trainingRound"]["id"]
+
+        # create the folder for the new training round
+        # where the step model will be saved
+        training_round_directory = f"{training_round_id}/steps/"
+        model_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            training_round_directory
+        )
+
+        # get dataset
+        print("Loading dataset...")
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="DOWNLOADING_DATASET"
         )
 
-        optimizer = AdamW(model.parameters(), lr=5e-5)
-
-        num_training_steps = training_epochs * len(train_dataloader)
-        num_testing_steps = len(test_dataloader)
-        lr_scheduler = get_scheduler(
-            name="linear",
-            optimizer=optimizer,
-            num_warmup_steps=0,
-            num_training_steps=num_training_steps,
+        test_dataset = load_dataset(
+            path=dataset_repo_id, revision=dataset_repo_revision, split="test"
         )
 
-        model.to(self.device)
-
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="TRAINING"
+        # get tokenizer from base model bert-base-cased
+        print("Loading tokenizer...")
+        tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name_or_path=base_model, revision=base_model_revision
         )
-        progress_bar = tqdm(range(num_training_steps), desc="Training Progress")
 
-        model.train()
-        for epoch in range(training_epochs):
-            for batch in train_dataloader:
-                batch = {k: v.to(self.device) for k, v in batch.items()}
-                outputs = model(**batch)
-                loss = outputs.loss
-                loss.backward()
+        # create a tokenize function that will tokenize the dataset
+        def tokenize_function(examples):
+            return tokenizer(examples["text"], padding="max_length", truncation=True)
 
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
-                progress_bar.update(1)
+        print("Tokenizing dataset...")
+        tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
 
-        progress_bar.close()
+        # Remove the text column because the model does not accept raw text as an input
+        tokenized_test_datasets = tokenized_test_datasets.map(
+            tokenize_function, batched=True
+        )
 
-        # Need to add
-        # self._update_training_round_step(
-        #     training_round_step_id=training_round_step_id, status="TESTING"
-        # )
-        progress_bar_testing = tqdm(range(num_testing_steps), desc="Testing Progress")
+        # Rename the label column to labels because
+        # the model expects the argument to be named labels
+        tokenized_test_datasets = tokenized_test_datasets.rename_column(
+            "label", "labels"
+        )
 
-        model.eval()
-        test_correct = 0
-        test_wrong = 0
-        with torch.no_grad():
-            for batch in test_dataloader:
-                batch = {k: v.to(self.device) for k, v in batch.items()}
-                predictions = model(**batch)
-                logits = predictions["logits"]
+        # Set the format of the dataset to return PyTorch tensors instead of lists
+        tokenized_test_datasets.set_format("torch")
 
-                predictions_class = torch.argmax(logits, dim=logits.dim() - 1)
-                correct_predictions = torch.eq(predictions_class, batch["labels"]).sum()
-                test_correct += correct_predictions
-                test_wrong += testing_batch_size - correct_predictions
+        # Load your model with the number of expected labels:
+        print("Loading base model...")
+        model = AutoModelForSequenceClassification.from_pretrained(
+            base_model, num_labels=5
+        )
 
-                progress_bar_testing.update(1)
+        eval_args = TrainingArguments(
+            output_dir=str(model_cache_for_training_round),
+            evaluation_strategy="epoch",
+            num_train_epochs=1,
+            per_device_eval_batch_size=training_batch_size,
+            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
+        )
 
-        progress_bar_testing.close()
+        metric = evaluate.load("accuracy")
 
-        test_accuracy = (test_correct * 1.0) / (test_correct + test_wrong)
+        def compute_metrics(eval_pred):
+            logits, labels = eval_pred
+            predictions = np.argmax(logits, axis=-1)
+            return metric.compute(predictions=predictions, references=labels)
 
-        training_round_step_dict = {
-            "model_state_dict": model.state_dict(),
-            "test_accuracy": test_accuracy,
-        }
+        trainer = Trainer(
+            model=model,
+            args=eval_args,
+            eval_dataset=tokenized_test_datasets,
+            compute_metrics=compute_metrics,
+        )
 
-        torch.save(training_round_step_dict, step_model_path)
+        trainer.evaluate()
+
+        trainer.save_model(output_dir=str(model_cache_for_training_round))
 
         self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="TRAINING_COMPLETE"
+            training_round_step_id=training_round_step_id, status="TESTING"
         )
 
         # clear the cache
-        dataset.cleanup_cache_files()
+        test_dataset.cleanup_cache_files()
 
     def worker(self):
         try:
@@ -467,21 +511,33 @@ class Training:
 
                 # first check if this machine picked up a training round already
                 config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
-                has_step_to_complete = False
+                has_step_to_train = False
+                has_step_to_test = False
                 has_model_to_upload = False
+
                 if config.get("id", None) is not None:
                     step_status = config.get("status", None)
                     if step_status in ACTIVE_TRAINING_ROUND_STEP_STATUSES:
-                        has_step_to_complete = True
+                        has_step_to_train = True
+                    if step_status in ACTIVE_TESTING_STEP_STATUSES:
+                        has_step_to_test = True
                     elif step_status in ACTIVE_UPLOADING_STEP_STATUSES:
                         has_model_to_upload = True
 
-                if not has_step_to_complete and not has_model_to_upload:
+                if (
+                    not has_step_to_train
+                    and not has_step_to_test
+                    and not has_model_to_upload
+                ):
                     self._consume()
-                if has_step_to_complete:
-                    print(f" [*] Using Device: {self.device} for training.")
-                    self.train()
+                if has_step_to_train:
+                    print(f" [*] Training - Using Device: {self.device} for training")
+                    self.train_model()
+                if has_step_to_test:
+                    print(f" [*] Testing - Using Device: {self.device} for training")
+                    self.test_model()
                 if has_model_to_upload:
+                    print(" [*] Uploading")
                     self.upload_models()
 
         except KeyboardInterrupt:
