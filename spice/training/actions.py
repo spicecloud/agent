@@ -142,8 +142,8 @@ class Training:
     def _update_training_round(self, training_round_id: str, status: str):
         mutation = gql(
             """
-            mutation resolveVerifyTrainingRoundFromHardware($trainingRoundId: String!, $status: String!) {
-                resolveVerifyTrainingRoundFromHardware(trainingRoundId: $trainingRoundId, status: $status) {
+            mutation updateTrainingRoundFromHardware($trainingRoundId: String!, $status: String!) {
+                updateTrainingRoundFromHardware(trainingRoundId: $trainingRoundId, status: $status) {
                     id
                     status
                     roundNumber
@@ -164,7 +164,7 @@ class Training:
         result = self.spice.session.execute(mutation, variable_values=variables)
         update_config_file(
             filepath=SPICE_ROUND_VERIFICATION_FILEPATH,
-            new_config=result["resolveVerifyTrainingRoundFromHardware"],
+            new_config=result["updateTrainingRoundFromHardware"],
         )
         return result
 
