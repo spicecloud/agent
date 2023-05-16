@@ -11,15 +11,9 @@ def cli(context):
 
 
 @cli.command("worker")
-@click.option(
-    "--verify",
-    is_flag=True,
-    required=False,
-    help="Use the worker to verify training rounds",
-)
 @click.pass_context
-def worker_command(context, verify: bool):
+def worker_command(context):
     """Run as a worker that picks up tasks from the spice.cloud queue."""
     spice = context.obj.get("SPICE")
-    message = spice.training.worker(verify)
+    message = spice.training.worker()
     print_result(message=message, context=context)
