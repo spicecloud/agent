@@ -7,6 +7,7 @@ from spice.graphql.sdk import create_session
 from spice.hardware.actions import Hardware
 from spice.inference.actions import Inference
 from spice.training.actions import Training
+from spice.uploader.actions import Uploader
 from spice.utils.config import read_config_file
 
 
@@ -52,3 +53,4 @@ class Spice:
         self.hardware = Hardware(self)
         self.inference = Inference(self)
         self.training = Training(self)
+        self.uploader = Uploader(self)
