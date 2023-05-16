@@ -325,7 +325,7 @@ class Training:
 
         # create the folder for the new training round
         # where the step model will be saved
-        training_round_directory = f"{training_round_id}/steps/"
+        training_round_directory = f"{training_round_id}/steps/{training_round_step_id}"
         model_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
             training_round_directory
         )
@@ -493,9 +493,10 @@ class Training:
             compute_metrics=compute_metrics,
         )
 
-        trainer.evaluate()
+        metrics = trainer.evaluate()
 
-        trainer.save_model(output_dir=str(model_cache_for_training_round))
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics, combined=False)
 
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="TESTING_COMPLETE"
