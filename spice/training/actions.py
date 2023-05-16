@@ -259,12 +259,12 @@ class Training:
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
         training_round_id = config["trainingRound"]["id"]
-        training_round_directory = f"{training_round_id}/steps/"
+        training_round_directory = f"{training_round_id}/steps/{training_round_step_id}"
 
         # round_id_step_id will be in form: [uuid]/steps/[uuid]
         # round_id_step_id is used for finding the step model in the cache
         # and as the key in S3
-        bucket_key = f"{training_round_id}/steps/{training_round_step_id}"
+        bucket_dir = f"{training_round_id}/steps/{training_round_step_id}/"
 
         # model_cache_for_training_round contains all the step models
         # for this particular training round
@@ -272,34 +272,32 @@ class Training:
             training_round_directory
         )
 
-        # step_model_path IS the trained step model
-        step_model_path = model_cache_for_training_round.joinpath(
-            f"{training_round_step_id}.pt"
-        )
-
-        # create the "file" and attach it to the training round step
-        file_checksum = hashlib.md5(step_model_path.read_bytes()).hexdigest()
-        file_id = self.spice.uploader._create_file(
-            file_name=step_model_path.name,
-            file_size=step_model_path.stat().st_size,
-            file_checksum=file_checksum,
-        )
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id,
-            status="REQUEST_UPLOAD",
-            file_id=file_id,
-        )
         self._update_training_round_step(
             training_round_step_id=training_round_step_id,
             status="UPLOADING",
         )
 
-        self.spice.uploader.upload_file(
-            bucket_name=MODEL_BUCKET_NAME,
-            key=bucket_key,
-            filepath=step_model_path,
-            file_id=file_id,
-        )
+        for file in model_cache_for_training_round.iterdir():
+            if file.is_file():
+                # create the "file" and attach it to the training round step
+                file_checksum = hashlib.md5(file.read_bytes()).hexdigest()
+                file_id = self.spice.uploader._create_file(
+                    file_name=file.name,
+                    file_size=file.stat().st_size,
+                    file_checksum=file_checksum,
+                )
+                # self._update_training_round_step(
+                #     training_round_step_id=training_round_step_id,
+                #     status="REQUEST_UPLOAD",
+                #     file_id=file_id,
+                # )
+                bucket_key = bucket_dir + file.name
+                self.spice.uploader.upload_file(
+                    bucket_name=MODEL_BUCKET_NAME,
+                    key=bucket_key,
+                    filepath=file,
+                    file_id=file_id,
+                )
 
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="COMPLETE"
@@ -423,7 +421,7 @@ class Training:
 
         # create the folder for the new training round
         # where the step model will be saved
-        training_round_directory = f"{training_round_id}/steps/"
+        training_round_directory = f"{training_round_id}/steps/{training_round_step_id}"
         model_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
             training_round_directory
         )
@@ -530,6 +528,7 @@ class Training:
                     and not has_model_to_upload
                 ):
                     self._consume()
+
                 if has_step_to_train:
                     print(f" [*] Training - Using Device: {self.device} for training")
                     self.train_model()
