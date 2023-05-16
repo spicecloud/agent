@@ -171,7 +171,6 @@ class Uploader:
         if (file_already_uploaded is False) or (
             file_already_uploaded and overwrite is True
         ):
-            s3 = boto3.client("s3")
             # TODO: configure these values based on the available system properties
             # if a file is bigger than multipart_threshold, then do multipart upload
             # multipart_threshold = 1024 * 100
