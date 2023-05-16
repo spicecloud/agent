@@ -110,6 +110,10 @@ class Uploader:
         file_id: Optional[str],
         overwrite: bool = False,
     ):
+        """
+        bucket: name of S3 bucket ie spice-models
+        key: dirs and file inside bucket /some/dir/file.json
+        """
         if filepath.exists() is False:
             raise Exception(f"File {filepath} does not exist.")
 
@@ -124,33 +128,17 @@ class Uploader:
                 file_name=filepath.name,
                 file_size=filepath.stat().st_size,
                 file_checksum=file_checksum,
+                location=f"s3://{key}",
             )
 
         if not file_id:
             raise Exception("No file_id found or provided.")
 
         s3_access_values = self._get_access()
-        s3_resource = boto3.resource(
-            "s3",
-            aws_access_key_id=s3_access_values["access_key_id"],
-            aws_secret_access_key=s3_access_values["secret_access_key"],
-        )
         s3_client = boto3.client(
             "s3",
             aws_access_key_id=s3_access_values["access_key_id"],
             aws_secret_access_key=s3_access_values["secret_access_key"],
-        )
-
-        # TODO: configure these values based on the available system properties
-        # if a file is bigger than multipart_threshold, then do multipart upload
-        multipart_threshold = 1024 * 100
-        multipart_chunksize = 1024 * 100
-        max_concurrency = 16
-        config = TransferConfig(
-            multipart_threshold=multipart_threshold,
-            max_concurrency=max_concurrency,
-            multipart_chunksize=multipart_chunksize,  # 25MB
-            use_threads=True,
         )
 
         self._update_file_status(file_id=file_id, is_uploading=True, is_complete=False)
@@ -183,8 +171,25 @@ class Uploader:
         if (file_already_uploaded is False) or (
             file_already_uploaded and overwrite is True
         ):
-            s3_resource.Object(bucket_name, key).upload_file(
-                filepath, Config=config, Callback=ProgressPercentage(filepath=filepath)
+            s3 = boto3.client("s3")
+            # TODO: configure these values based on the available system properties
+            # if a file is bigger than multipart_threshold, then do multipart upload
+            # multipart_threshold = 1024 * 100
+            # multipart_chunksize = 1024 * 100
+            max_concurrency = 16
+            config = TransferConfig(
+                # multipart_threshold=multipart_threshold,
+                max_concurrency=max_concurrency,
+                # multipart_chunksize=multipart_chunksize,  # 25MB
+                use_threads=True,
             )
-        print("")
+            s3_client.upload_file(
+                filepath,
+                bucket_name,
+                key,
+                Config=config,
+                Callback=ProgressPercentage(filepath=filepath),
+            )
+
+        print("")  # print out a newline
         self._update_file_status(file_id=file_id, is_uploading=False, is_complete=True)
