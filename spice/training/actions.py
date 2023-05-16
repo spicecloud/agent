@@ -1,4 +1,6 @@
 import hashlib
+import boto3
+import requests
 import json
 import logging
 import os
@@ -141,7 +143,7 @@ class Training:
 
         return device
 
-    def _update_training_round(self, training_round_id, status: str):
+    def _update_training_round(self, training_round_id: str, status: str):
         mutation = gql(
             """
             mutation resolveVerifyTrainingRoundFromHardware($trainingRoundId: String!, $status: String!) {
@@ -212,7 +214,7 @@ class Training:
         print(" [*] Processing message.")
         data = json.loads(body.decode("utf-8"))
         training_round_id = data["training_round_id"]
-        training_round_number = data["training_round_number"]
+        data["training_round_number"]
         if not training_round_id:
             raise Exception(
                 f'No training_round_id found in message body: {body.decode("utf-8")}'
@@ -574,6 +576,61 @@ class Training:
         # clear the cache
         test_dataset.cleanup_cache_files()
 
+    def _download_verify_model_file(self, url, destination_url):
+        response = requests.get(url)
+        response.raise_for_status()
+
+        # Implement checksum if file is dated
+        with open(destination_url, "wb") as file:
+            file.write(response.content)
+
+    def verify_model(self):
+        config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
+        training_round_id = config["id"]
+        training_round_number = config["roundNumber"]
+        self._update_training_round(
+            training_round_id=training_round_id, status="CLAIMED"
+        )
+        config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
+
+        base_model = config["trainingJob"]["baseModel"]
+        base_model_revision = config["trainingJob"]["baseModelRevision"]
+        dataset_repo_id = config["trainingJob"]["baseDatasetRepoId"]
+        dataset_repo_revision = config["trainingJob"]["baseDatasetRepoRevision"]
+
+        # get model from s3
+        get_object_key = (
+            f"{training_round_id}/{training_round_number}_pytorch_round_model.bin"
+        )
+        query = gql(
+            """
+            query getAgentPresignedRoundFileDownloadUrl($trainingRoundId: String!, $trainingRoundNumber: Int!) {
+                getAgentPresignedRoundFileDownloadUrl(trainingRoundId: $trainingRoundId, trainingRoundNumber: $trainingRoundNumber)
+            }
+            """  # noqa
+        )
+        variables = {
+            "trainingRoundId": training_round_id,
+            "trainingRoundNumber": training_round_number,
+        }
+
+        result = self.spice.session.execute(query, variable_values=variables)
+        agent_presigned_round_file_download_url = result[
+            "getAgentPresignedRoundFileDownloadUrl"
+        ]
+
+        destination_url = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            f"{training_round_id}/{training_round_number}_pytorch_round_model.bin"
+        )
+
+        print(f"Downloading: {destination_url}")
+        self._update_training_round(
+            training_round_id=training_round_id, status="DOWNLOADING_ROUND_MODEL"
+        )
+        self._download_verify_model_file(
+            agent_presigned_round_file_download_url, destination_url
+        )
+
     def worker(self, verify=False):
         try:
             # check if this machine is in verification mode
@@ -631,7 +688,7 @@ class Training:
                     print(
                         f" [*] Validating - Using Device: {self.device} for validation"
                     )
-                    # self.verify_model()
+                    self.verify_model()
 
         except KeyboardInterrupt:
             print(" [*] Stopping worker...")
