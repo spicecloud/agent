@@ -269,7 +269,7 @@ class Training:
         if self.channel is None or self.channel.is_closed:
             self._create_channel()
 
-        if self.channel == None:
+        if self.channel is None:
             raise Exception(" [*] Channel cannot be opened.")
 
         self.channel.basic_consume(
