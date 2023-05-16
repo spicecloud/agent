@@ -50,15 +50,18 @@ class Uploader:
             "secret_access_key": result["getAgentUploaderAccess"]["secretAccessKey"],
         }
 
-    def _create_file(self, file_name: str, file_size: int, file_checksum: str):
+    def _create_file(
+        self, file_name: str, file_size: int, file_checksum: str, location: str
+    ):
         mutation = gql(
             """
             mutation createFile(
             $fileName: String!
             $fileSize: Int!
             $fileChecksum: String!
+            $location: String!
             ) {
-                createFile(fileName: $fileName, fileSize: $fileSize, fileChecksum: $fileChecksum) {
+                createFile(fileName: $fileName, fileSize: $fileSize, fileChecksum: $fileChecksum, location: $location) {
                     id
                 }
             }
@@ -68,6 +71,7 @@ class Uploader:
             "fileName": file_name,
             "fileSize": file_size,
             "fileChecksum": file_checksum,
+            "location": location,
         }
         result = self.spice.session.execute(mutation, variable_values=variables)
         return result.get("createFile").get("id")

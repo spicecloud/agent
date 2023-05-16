@@ -279,19 +279,21 @@ class Training:
 
         for file in model_cache_for_training_round.iterdir():
             if file.is_file():
+                bucket_key = bucket_dir + file.name
+
                 # create the "file" and attach it to the training round step
                 file_checksum = hashlib.md5(file.read_bytes()).hexdigest()
                 file_id = self.spice.uploader._create_file(
                     file_name=file.name,
                     file_size=file.stat().st_size,
                     file_checksum=file_checksum,
+                    location=f"s3://{bucket_key}",
                 )
                 # self._update_training_round_step(
                 #     training_round_step_id=training_round_step_id,
                 #     status="REQUEST_UPLOAD",
                 #     file_id=file_id,
                 # )
-                bucket_key = bucket_dir + file.name
                 self.spice.uploader.upload_file(
                     bucket_name=MODEL_BUCKET_NAME,
                     key=bucket_key,
