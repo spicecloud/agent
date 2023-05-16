@@ -16,23 +16,17 @@ from pika.exceptions import AMQPConnectionError, ConnectionClosedByBroker
 from retry import retry
 import torch  # noqa
 from torch.mps import empty_cache
-from torch.optim import AdamW  # noqa
-from torch.utils.data import DataLoader  # noqa
 from transformers import (  # noqa
-    AutoImageProcessor,
-    AutoModel,
     AutoModelForSequenceClassification,
     AutoTokenizer,
     Trainer,
     TrainingArguments,
-    get_scheduler,
-    pipeline,
 )
 
 from spice.utils.config import (
     SPICE_MODEL_CACHE_FILEPATH,
-    SPICE_TRAINING_FILEPATH,
     SPICE_ROUND_VERIFICATION_FILEPATH,
+    SPICE_TRAINING_FILEPATH,
     create_directory,
     read_config_file,
     update_config_file,
@@ -81,6 +75,7 @@ class Training:
         self.spice = spice
         self.device = self.get_device()
         self.channel = None
+        self.can_do_validation = "cuda" in self.device.type
 
         # logging.basicConfig(level=logging.INFO)
         if self.spice.DEBUG:
@@ -206,44 +201,32 @@ class Training:
         )
         return result
 
-    def _claim_training_round_verification_callback(
-        self, channel, method, properties, body
-    ):
+    def _claim_message_callback(self, channel, method, properties, body):
+        """
+        Based on if we get a training_round_step_id or training_round_id from the
+        message consume
+        """
         print(" [*] Processing message.")
         data = json.loads(body.decode("utf-8"))
-        training_round_id = data["training_round_id"]
-        training_round_number = data["training_round_number"]
-        if not training_round_id:
+
+        training_round_step_id = data.get("training_round_step_id", None)
+        training_round_id = data.get("training_round_id", None)
+
+        if not training_round_step_id and not training_round_id:
             raise Exception(
-                f'No training_round_id found in message body: {body.decode("utf-8")}'
+                f'No training_round_step_id or training_round_id found in message body: {body.decode("utf-8")}'  # noqa
             )
-        self._update_training_round(
-            training_round_id=training_round_id, status="CLAIMED"
-        )
-        print(" [*] Obtained training round.")
 
-        if channel.is_open:
-            channel.basic_ack(delivery_tag=method.delivery_tag)
-        else:
-            print(" [*] Channel closed already. Cannot ack message.")
-
-        print(" [*] Stopping worker...")
-        if self.channel:
-            self.channel.stop_consuming()
-            self.channel.close()
-
-    def _claim_training_round_step_callback(self, channel, method, properties, body):
-        print(" [*] Processing message.")
-        data = json.loads(body.decode("utf-8"))
-        training_round_step_id = data["training_round_step_id"]
-        if not training_round_step_id:
-            raise Exception(
-                f'No training_round_step_id found in message body: {body.decode("utf-8")}'  # noqa
+        if training_round_id:
+            self._update_training_round(
+                training_round_id=training_round_id, status="CLAIMED"
             )
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="CLAIMED"
-        )
-        print(" [*] Obtained training round step.")
+            print(" [*] Obtained training round.")
+        if training_round_step_id:
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id, status="CLAIMED"
+            )
+            print(" [*] Obtained training round step.")
 
         if channel.is_open:
             channel.basic_ack(delivery_tag=method.delivery_tag)
@@ -286,17 +269,14 @@ class Training:
         if self.channel is None or self.channel.is_closed:
             self._create_channel()
 
-        # self.channel.queue_declare("inference", durable=True, auto_delete=False)
-        if not verify:
-            self.channel.basic_consume(
-                queue="default",
-                on_message_callback=self._claim_training_round_step_callback,
-            )
-        else:
-            self.channel.basic_consume(
-                queue="default",
-                on_message_callback=self._claim_training_round_verification_callback,
-            )
+        if self.channel == None:
+            raise Exception(" [*] Channel cannot be opened.")
+
+        self.channel.basic_consume(
+            queue="default",
+            on_message_callback=self._claim_message_callback,
+        )
+
         try:
             print(" [*] Waiting for messages. To exit press CTRL+C")
             self.channel.start_consuming()
@@ -574,20 +554,21 @@ class Training:
         # clear the cache
         test_dataset.cleanup_cache_files()
 
-    def worker(self, verify=False):
+    def worker(self):
         try:
-            # check if this machine is in verification mode
-            while True and not verify:
+            while True:
                 self.spice.hardware.check_in_http(is_available=True)
 
                 # check if this machine picked up a training round already
-                config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+                training_config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+
                 has_step_to_train = False
                 has_step_to_test = False
                 has_model_to_upload = False
+                has_round_to_verify = False
 
-                if config.get("id", None) is not None:
-                    step_status = config.get("status", None)
+                if training_config.get("id", None) is not None:
+                    step_status = training_config.get("status", None)
                     if step_status in ACTIVE_TRAINING_ROUND_STEP_STATUSES:
                         has_step_to_train = True
                     if step_status in ACTIVE_TESTING_STEP_STATUSES:
@@ -595,13 +576,27 @@ class Training:
                     elif step_status in ACTIVE_UPLOADING_STEP_STATUSES:
                         has_model_to_upload = True
 
+                if self.can_do_validation:
+                    verification_config = read_config_file(
+                        filepath=SPICE_ROUND_VERIFICATION_FILEPATH
+                    )
+                    if verification_config.get("id", None) is not None:
+                        step_status = verification_config.get("status", None)
+                        if step_status in ACTIVE_VERIFY_ROUND_STATUSES:
+                            has_round_to_verify = True
+
                 if (
                     not has_step_to_train
                     and not has_step_to_test
                     and not has_model_to_upload
+                    and not has_round_to_verify
                 ):
                     self._consume()
 
+                if has_round_to_verify:
+                    print(
+                        f" [*] Validating - Using Device: {self.device} for validation"
+                    )
                 if has_step_to_train:
                     print(f" [*] Training - Using Device: {self.device} for training")
                     self.train_model()
@@ -612,25 +607,6 @@ class Training:
                     print(" [*] Uploading")
                     self.upload_models()
 
-            while True:
-                self.spice.hardware.check_in_http(is_available=True)
-
-                # check if this machine picked up a verification round already
-                config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
-                has_round_to_verify = False
-
-                if config.get("id", None) is not None:
-                    step_status = config.get("status", None)
-                    if step_status in ACTIVE_VERIFY_ROUND_STATUSES:
-                        has_round_to_verify = True
-
-                if not has_round_to_verify:
-                    self._consume(verify)
-
-                if has_round_to_verify:
-                    print(
-                        f" [*] Validating - Using Device: {self.device} for validation"
-                    )
                     # self.verify_model()
 
         except KeyboardInterrupt:
