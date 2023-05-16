@@ -307,6 +307,7 @@ class Training:
         training_epochs = config["trainingEpochs"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
+        testing_batch_size = 32  # need to put this in config
 
         # create the folder for the new training round
         # where the step model will be saved
@@ -330,6 +331,13 @@ class Training:
             path=dataset_repo_id, revision=dataset_repo_revision, split=split_string
         )
 
+        test_split_string = "test[:]"
+        test_dataset = load_dataset(
+            path=dataset_repo_id,
+            revision=dataset_repo_revision,
+            split=test_split_string,
+        )
+
         # get tokenizer from base model bert-base-cased
         print("Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(
@@ -342,20 +350,32 @@ class Training:
 
         print("Tokenizing dataset...")
         tokenized_datasets = dataset.map(tokenize_function, batched=True)
+        tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
 
         # Remove the text column because the model does not accept raw text as an input
         tokenized_datasets = tokenized_datasets.remove_columns(["text"])
+        tokenized_test_datasets = tokenized_test_datasets.remove_columns(["text"])
         # Rename the label column to labels because
         # the model expects the argument to be named labels
         tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
+        tokenized_test_datasets = tokenized_test_datasets.rename_column(
+            "label", "labels"
+        )
         # Set the format of the dataset to return PyTorch tensors instead of lists
         tokenized_datasets.set_format("torch")
+        tokenized_test_datasets.set_format("torch")
 
         # Create a DataLoader for your training and test datasets
         # so you can iterate over batches of data
         print("Creating dataloaders...")
         train_dataloader = DataLoader(
             tokenized_datasets, shuffle=True, batch_size=training_batch_size
+        )
+        test_dataloader = DataLoader(
+            # Need to add batch size to training config
+            tokenized_test_datasets,
+            shuffle=False,
+            batch_size=testing_batch_size,
         )
 
         # Load your model with the number of expected labels:
@@ -370,6 +390,7 @@ class Training:
         optimizer = AdamW(model.parameters(), lr=5e-5)
 
         num_training_steps = training_epochs * len(train_dataloader)
+        num_testing_steps = len(test_dataloader)
         lr_scheduler = get_scheduler(
             name="linear",
             optimizer=optimizer,
@@ -379,11 +400,10 @@ class Training:
 
         model.to(self.device)
 
-        print("Start training")
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="TRAINING"
         )
-        progress_bar = tqdm(range(num_training_steps))
+        progress_bar = tqdm(range(num_training_steps), desc="Training Progress")
 
         model.train()
         for epoch in range(training_epochs):
@@ -398,8 +418,40 @@ class Training:
                 optimizer.zero_grad()
                 progress_bar.update(1)
 
-        # check that the model cache directory exists
-        torch.save(model.state_dict(), step_model_path)
+        progress_bar.close()
+
+        # Need to add
+        # self._update_training_round_step(
+        #     training_round_step_id=training_round_step_id, status="TESTING"
+        # )
+        progress_bar_testing = tqdm(range(num_testing_steps), desc="Testing Progress")
+
+        model.eval()
+        test_correct = 0
+        test_wrong = 0
+        with torch.no_grad():
+            for batch in test_dataloader:
+                batch = {k: v.to(self.device) for k, v in batch.items()}
+                predictions = model(**batch)
+                logits = predictions["logits"]
+
+                predictions_class = torch.argmax(logits, dim=logits.dim() - 1)
+                correct_predictions = torch.eq(predictions_class, batch["labels"]).sum()
+                test_correct += correct_predictions
+                test_wrong += testing_batch_size - correct_predictions
+
+                progress_bar_testing.update(1)
+
+        progress_bar_testing.close()
+
+        test_accuracy = (test_correct * 1.0) / (test_correct + test_wrong)
+
+        training_round_step_dict = {
+            "model_state_dict": model.state_dict(),
+            "test_accuracy": test_accuracy,
+        }
+
+        torch.save(training_round_step_dict, step_model_path)
 
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="TRAINING_COMPLETE"
