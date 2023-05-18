@@ -17,3 +17,15 @@ Linting:
 
 Formatting:
 `black`: https://github.com/psf/black
+
+## Troubleshooting
+
+### macOS
+
+#### ModuleNotFoundError: No module named '\_lzma'
+
+WARNING: The Python lzma extension was not compiled. Missing the lzma lib?
+
+```bash
+brew install xz
+```
