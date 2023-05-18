@@ -213,6 +213,27 @@ class Training:
         )
         return result
 
+    def _get_agent_round_presigned_urls(
+        self, training_round_id: str, training_round_number: str
+    ):
+        # todo: remove training_round_number
+        query = gql(
+            """
+            query getAgentRoundPresignedUrls($trainingRoundId: String!, $trainingRoundNumber: Int!) {
+                getAgentRoundPresignedUrls(trainingRoundId: $trainingRoundId, trainingRoundNumber: $trainingRoundNumber) {
+                    roundModel
+                    config
+                }
+            }
+            """  # noqa
+        )
+        variables = {
+            "trainingRoundId": training_round_id,
+            "trainingRoundNumber": training_round_number,
+        }
+
+        return self.spice.session.execute(query, variable_values=variables)
+
     def _claim_message_callback(self, channel, method, properties, body):
         """
         Based on if we get a training_round_step_id or training_round_id from the
@@ -616,28 +637,15 @@ class Training:
             verification_round_directory
         )
 
-        # download model from s3
-        query = gql(
-            """
-            query getAgentRoundPresignedUrls($trainingRoundId: String!, $trainingRoundNumber: Int!) {
-                getAgentRoundPresignedUrls(trainingRoundId: $trainingRoundId, trainingRoundNumber: $trainingRoundNumber) {
-                    roundModel
-                    config
-                }
-            }
-            """  # noqa
+        # get the presigned urls for a round's model + configs
+        result = self._get_agent_round_presigned_urls(
+            training_round_id=training_round_id,
+            training_round_number=training_round_number,
         )
-        variables = {
-            "trainingRoundId": training_round_id,
-            "trainingRoundNumber": training_round_number,
-        }
-
-        result = self.spice.session.execute(query, variable_values=variables)
 
         agent_round_presigned_round_model_url = result["getAgentRoundPresignedUrls"][
             "roundModel"
         ]
-
         agent_presigned_config_url = result["getAgentRoundPresignedUrls"]["config"]
 
         destination_round_file_url = SPICE_MODEL_CACHE_FILEPATH.joinpath(
