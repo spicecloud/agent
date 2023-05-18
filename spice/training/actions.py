@@ -444,6 +444,10 @@ class Training:
             compute_metrics=compute_metrics,
         )
 
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="TRAINING"
+        )
+
         trainer.train()
 
         trainer.save_model(output_dir=str(model_cache_for_training_round))
@@ -482,7 +486,8 @@ class Training:
         # get dataset
         print("Loading dataset...")
         self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="DOWNLOADING_DATASET"
+            training_round_step_id=training_round_step_id,
+            status="DOWNLOADING_TESTING_DATASET",
         )
 
         test_dataset = load_dataset(
@@ -542,6 +547,11 @@ class Training:
             args=eval_args,
             eval_dataset=tokenized_test_datasets,
             compute_metrics=compute_metrics,
+        )
+
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id,
+            status="TESTING",
         )
 
         metrics = trainer.evaluate()
