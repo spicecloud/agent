@@ -53,7 +53,9 @@ class Hardware:
         }
 
     def get_windows_cpu_values(self) -> Dict[str, str]:
-        windows_cpu_csv_command = "cmd.exe /C wmic cpu get Name, MaxClockSpeed /format:csv" # noqa
+        windows_cpu_csv_command = (
+            "cmd.exe /C wmic cpu get Name, MaxClockSpeed /format:csv"  # noqa
+        )
         windows_cpu_csv_output = subprocess.check_output(
             windows_cpu_csv_command.split(" "),
             stderr=subprocess.DEVNULL,
@@ -132,6 +134,10 @@ class Hardware:
         self.spice.host_config["rabbitmq_port"] = rabbitmq_port
         self.spice.full_config[self.spice.host] = self.spice.host_config
         update_config_file(new_config=self.spice.full_config)
+
+        # then check in that the hardware, validate that it is saved correctly
+        # and headers are propagated
+        self.check_in_http(is_healthy=True)
         return result
 
     def check_in_http(
