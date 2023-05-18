@@ -8,20 +8,25 @@ import sys
 from typing import Optional
 
 from datasets import load_dataset
+import evaluate
 from gql import gql
+import numpy as np
 import pika
 from pika.exceptions import AMQPConnectionError, ConnectionClosedByBroker
+import requests
 from retry import retry
+import torch  # noqa
 from torch.mps import empty_cache
-from tqdm.auto import tqdm
 from transformers import (  # noqa
     AutoModelForSequenceClassification,
     AutoTokenizer,
-    get_scheduler,
+    Trainer,
+    TrainingArguments,
 )
 
 from spice.utils.config import (
     SPICE_MODEL_CACHE_FILEPATH,
+    SPICE_ROUND_VERIFICATION_FILEPATH,
     SPICE_TRAINING_FILEPATH,
     create_directory,
     read_config_file,
@@ -37,6 +42,14 @@ import transformers  # noqa
 
 LOGGER = logging.getLogger(__name__)
 
+ACTIVE_VERIFY_ROUND_STATUSES = {
+    "CLAIMED",
+    "DOWNLOADING_ROUND_MODEL",
+    "DOWNLOADING_VERIFICATION_DATASET",
+    "VERIFYING",
+    "VERIFYING_COMPLETE",
+}
+
 ACTIVE_TRAINING_ROUND_STEP_STATUSES = [
     "CLAIMED",
     "DOWNLOADING_MODEL",
@@ -44,11 +57,17 @@ ACTIVE_TRAINING_ROUND_STEP_STATUSES = [
     "TRAINING",
     "UPLOADING_STEP_MODEL",
 ]
-ACTIVE_UPLOADING_STEP_STATUSES = [
+ACTIVE_TESTING_STEP_STATUSES = [
     "TRAINING_COMPLETE",
+    "DOWNLOADING_TESTING_DATASET",
+    "TESTING",
+]
+ACTIVE_UPLOADING_STEP_STATUSES = [
+    "TESTING_COMPLETE",
     "REQUEST_UPLOAD",
     "UPLOADING",
 ]
+
 
 MODEL_BUCKET_NAME = "spice-models"
 
@@ -58,6 +77,7 @@ class Training:
         self.spice = spice
         self.device = self.get_device()
         self.channel = None
+        self.can_do_validation = "cuda" in self.device.type
 
         # logging.basicConfig(level=logging.INFO)
         if self.spice.DEBUG:
@@ -118,6 +138,35 @@ class Training:
 
         return device
 
+    def _update_training_round(self, training_round_id: str, status: str):
+        mutation = gql(
+            """
+            mutation updateTrainingRoundFromHardware($trainingRoundId: String!, $status: String!) {
+                updateTrainingRoundFromHardware(trainingRoundId: $trainingRoundId, status: $status) {
+                    id
+                    status
+                    roundNumber
+                    trainingJob {
+                        id
+                        baseModel
+                        baseModelRevision
+                        baseDatasetRepoId
+                        baseDatasetRepoRevision
+                    }
+                }
+            }
+            """  # noqa
+        )
+        variables = {"trainingRoundId": training_round_id}
+        if status is not None:
+            variables["status"] = status
+        result = self.spice.session.execute(mutation, variable_values=variables)
+        update_config_file(
+            filepath=SPICE_ROUND_VERIFICATION_FILEPATH,
+            new_config=result["updateTrainingRoundFromHardware"],
+        )
+        return result
+
     def _update_training_round_step(
         self, training_round_step_id: str, status: str, file_id: Optional[str] = None
     ):
@@ -154,18 +203,32 @@ class Training:
         )
         return result
 
-    def _claim_training_round_step_callback(self, channel, method, properties, body):
+    def _claim_message_callback(self, channel, method, properties, body):
+        """
+        Based on if we get a training_round_step_id or training_round_id from the
+        message consume
+        """
         print(" [*] Processing message.")
         data = json.loads(body.decode("utf-8"))
-        training_round_step_id = data["training_round_step_id"]
-        if not training_round_step_id:
+
+        training_round_step_id = data.get("training_round_step_id", None)
+        training_round_id = data.get("training_round_id", None)
+
+        if not training_round_step_id and not training_round_id:
             raise Exception(
-                f'No training_round_step_id found in message body: {body.decode("utf-8")}'  # noqa
+                f'No training_round_step_id or training_round_id found in message body: {body.decode("utf-8")}'  # noqa
             )
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="CLAIMED"
-        )
-        print(" [*] Obtained training round step.")
+
+        if training_round_id:
+            self._update_training_round(
+                training_round_id=training_round_id, status="CLAIMED"
+            )
+            print(" [*] Obtained training round.")
+        if training_round_step_id:
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id, status="CLAIMED"
+            )
+            print(" [*] Obtained training round step.")
 
         if channel.is_open:
             channel.basic_ack(delivery_tag=method.delivery_tag)
@@ -208,11 +271,14 @@ class Training:
         if self.channel is None or self.channel.is_closed:
             self._create_channel()
 
-        # self.channel.queue_declare("inference", durable=True, auto_delete=False)
+        if self.channel is None:
+            raise Exception(" [*] Channel cannot be opened.")
+
         self.channel.basic_consume(
             queue="default",
-            on_message_callback=self._claim_training_round_step_callback,
+            on_message_callback=self._claim_message_callback,
         )
+
         try:
             print(" [*] Waiting for messages. To exit press CTRL+C")
             self.channel.start_consuming()
@@ -244,12 +310,12 @@ class Training:
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
         training_round_id = config["trainingRound"]["id"]
-        training_round_directory = f"{training_round_id}/steps/"
+        training_round_directory = f"{training_round_id}/steps/{training_round_step_id}"
 
         # round_id_step_id will be in form: [uuid]/steps/[uuid]
         # round_id_step_id is used for finding the step model in the cache
         # and as the key in S3
-        bucket_key = f"{training_round_id}/steps/{training_round_step_id}"
+        bucket_dir = f"{training_round_id}/steps/{training_round_step_id}/"
 
         # model_cache_for_training_round contains all the step models
         # for this particular training round
@@ -257,40 +323,40 @@ class Training:
             training_round_directory
         )
 
-        # step_model_path IS the trained step model
-        step_model_path = model_cache_for_training_round.joinpath(
-            f"{training_round_step_id}.pt"
-        )
-
-        # create the "file" and attach it to the training round step
-        file_checksum = hashlib.md5(step_model_path.read_bytes()).hexdigest()
-        file_id = self.spice.uploader._create_file(
-            file_name=step_model_path.name,
-            file_size=step_model_path.stat().st_size,
-            file_checksum=file_checksum,
-        )
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id,
-            status="REQUEST_UPLOAD",
-            file_id=file_id,
-        )
         self._update_training_round_step(
             training_round_step_id=training_round_step_id,
             status="UPLOADING",
         )
 
-        self.spice.uploader.upload_file(
-            bucket_name=MODEL_BUCKET_NAME,
-            key=bucket_key,
-            filepath=step_model_path,
-            file_id=file_id,
-        )
+        for file in model_cache_for_training_round.iterdir():
+            if file.is_file():
+                bucket_key = bucket_dir + file.name
+
+                # create the "file" and attach it to the training round step
+                file_checksum = hashlib.md5(file.read_bytes()).hexdigest()
+                file_id = self.spice.uploader._create_file(
+                    file_name=file.name,
+                    file_size=file.stat().st_size,
+                    file_checksum=file_checksum,
+                    location=f"s3://{bucket_key}",
+                )
+                # self._update_training_round_step(
+                #     training_round_step_id=training_round_step_id,
+                #     status="REQUEST_UPLOAD",
+                #     file_id=file_id,
+                # )
+                self.spice.uploader.upload_file(
+                    bucket_name=MODEL_BUCKET_NAME,
+                    key=bucket_key,
+                    filepath=file,
+                    file_id=file_id,
+                )
 
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="COMPLETE"
         )
 
-    def train(self):
+    def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
         self._update_training_round_step(
@@ -304,19 +370,15 @@ class Training:
         dataset_repo_revision = config["baseDatasetRepoRevision"]
         dataset_starting_row = config["datasetStartingRow"]
         dataset_ending_row = config["datasetEndingRow"]
-        training_epochs = config["trainingEpochs"]
+        config["trainingEpochs"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
-        testing_batch_size = 32  # need to put this in config
 
         # create the folder for the new training round
         # where the step model will be saved
-        training_round_directory = f"{training_round_id}/steps/"
+        training_round_directory = f"{training_round_id}/steps/{training_round_step_id}"
         model_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
             training_round_directory
-        )
-        step_model_path = model_cache_for_training_round.joinpath(
-            f"{training_round_step_id}.pt"
         )
         create_directory(filepath=model_cache_for_training_round)
 
@@ -327,15 +389,8 @@ class Training:
         )
 
         split_string = f"train[{dataset_starting_row}:{dataset_ending_row}]"
-        dataset = load_dataset(
+        train_dataset = load_dataset(
             path=dataset_repo_id, revision=dataset_repo_revision, split=split_string
-        )
-
-        test_split_string = "test[:]"
-        test_dataset = load_dataset(
-            path=dataset_repo_id,
-            revision=dataset_repo_revision,
-            split=test_split_string,
         )
 
         # get tokenizer from base model bert-base-cased
@@ -349,139 +404,380 @@ class Training:
             return tokenizer(examples["text"], padding="max_length", truncation=True)
 
         print("Tokenizing dataset...")
-        tokenized_datasets = dataset.map(tokenize_function, batched=True)
-        tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
+        tokenized_datasets = train_dataset.map(tokenize_function, batched=True)
 
         # Remove the text column because the model does not accept raw text as an input
         tokenized_datasets = tokenized_datasets.remove_columns(["text"])
-        tokenized_test_datasets = tokenized_test_datasets.remove_columns(["text"])
+
         # Rename the label column to labels because
         # the model expects the argument to be named labels
         tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
-        tokenized_test_datasets = tokenized_test_datasets.rename_column(
-            "label", "labels"
-        )
+
         # Set the format of the dataset to return PyTorch tensors instead of lists
         tokenized_datasets.set_format("torch")
-        tokenized_test_datasets.set_format("torch")
-
-        # Create a DataLoader for your training and test datasets
-        # so you can iterate over batches of data
-        print("Creating dataloaders...")
-        train_dataloader = DataLoader(
-            tokenized_datasets, shuffle=True, batch_size=training_batch_size
-        )
-        test_dataloader = DataLoader(
-            # Need to add batch size to training config
-            tokenized_test_datasets,
-            shuffle=False,
-            batch_size=testing_batch_size,
-        )
 
         # Load your model with the number of expected labels:
         print("Loading base model...")
         model = AutoModelForSequenceClassification.from_pretrained(
             base_model, num_labels=5
         )
+
+        training_args = TrainingArguments(
+            output_dir=str(model_cache_for_training_round),
+            evaluation_strategy="no",  # set to "no", set to "epoch" for eval + train
+            num_train_epochs=1,
+            per_device_train_batch_size=training_batch_size,
+            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
+        )
+
+        metric = evaluate.load("accuracy")
+
+        def compute_metrics(eval_pred):
+            logits, labels = eval_pred
+            predictions = np.argmax(logits, axis=-1)
+            return metric.compute(predictions=predictions, references=labels)
+
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=tokenized_datasets,
+            compute_metrics=compute_metrics,
+        )
+
+        trainer.train()
+
+        trainer.save_model(output_dir=str(model_cache_for_training_round))
+
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="TESTING"
+        )
+
+        # clear the cache
+        train_dataset.cleanup_cache_files()
+
+    def test_model(self):
+        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+        training_round_step_id = config["id"]
+        self._update_training_round_step(
+            training_round_step_id=training_round_step_id, status="CLAIMED"
+        )
+        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+
+        base_model = config["baseModel"]
+        base_model_revision = config["baseModelRevision"]
+        dataset_repo_id = config["baseDatasetRepoId"]
+        dataset_repo_revision = config["baseDatasetRepoRevision"]
+        config["datasetStartingRow"]
+        config["datasetEndingRow"]
+        training_batch_size = config["trainingBatchSize"]
+        training_round_id = config["trainingRound"]["id"]
+
+        # create the folder for the new training round
+        # where the step model will be saved
+        training_round_directory = f"{training_round_id}/steps/{training_round_step_id}"
+        model_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            training_round_directory
+        )
+
+        # get dataset
+        print("Loading dataset...")
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="DOWNLOADING_DATASET"
         )
 
-        optimizer = AdamW(model.parameters(), lr=5e-5)
-
-        num_training_steps = training_epochs * len(train_dataloader)
-        num_testing_steps = len(test_dataloader)
-        lr_scheduler = get_scheduler(
-            name="linear",
-            optimizer=optimizer,
-            num_warmup_steps=0,
-            num_training_steps=num_training_steps,
+        test_dataset = load_dataset(
+            path=dataset_repo_id, revision=dataset_repo_revision, split="test"
         )
 
-        model.to(self.device)
-
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="TRAINING"
+        # get tokenizer from base model bert-base-cased
+        print("Loading tokenizer...")
+        tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name_or_path=base_model, revision=base_model_revision
         )
-        progress_bar = tqdm(range(num_training_steps), desc="Training Progress")
 
-        model.train()
-        for epoch in range(training_epochs):
-            for batch in train_dataloader:
-                batch = {k: v.to(self.device) for k, v in batch.items()}
-                outputs = model(**batch)
-                loss = outputs.loss
-                loss.backward()
+        # create a tokenize function that will tokenize the dataset
+        def tokenize_function(examples):
+            return tokenizer(examples["text"], padding="max_length", truncation=True)
 
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
-                progress_bar.update(1)
+        print("Tokenizing dataset...")
+        tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
 
-        progress_bar.close()
+        # Remove the text column because the model does not accept raw text as an input
+        tokenized_test_datasets = tokenized_test_datasets.map(
+            tokenize_function, batched=True
+        )
 
-        # Need to add
-        # self._update_training_round_step(
-        #     training_round_step_id=training_round_step_id, status="TESTING"
-        # )
-        progress_bar_testing = tqdm(range(num_testing_steps), desc="Testing Progress")
+        # Rename the label column to labels because
+        # the model expects the argument to be named labels
+        tokenized_test_datasets = tokenized_test_datasets.rename_column(
+            "label", "labels"
+        )
 
-        model.eval()
-        test_correct = 0
-        test_wrong = 0
-        with torch.no_grad():
-            for batch in test_dataloader:
-                batch = {k: v.to(self.device) for k, v in batch.items()}
-                predictions = model(**batch)
-                logits = predictions["logits"]
+        # Set the format of the dataset to return PyTorch tensors instead of lists
+        tokenized_test_datasets.set_format("torch")
 
-                predictions_class = torch.argmax(logits, dim=logits.dim() - 1)
-                correct_predictions = torch.eq(predictions_class, batch["labels"]).sum()
-                test_correct += correct_predictions
-                test_wrong += testing_batch_size - correct_predictions
+        # Load your model with the number of expected labels:
+        print("Loading base model...")
+        model = AutoModelForSequenceClassification.from_pretrained(
+            base_model, num_labels=5
+        )
 
-                progress_bar_testing.update(1)
+        eval_args = TrainingArguments(
+            output_dir=str(model_cache_for_training_round),
+            evaluation_strategy="epoch",
+            num_train_epochs=1,
+            per_device_eval_batch_size=training_batch_size,
+            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
+        )
 
-        progress_bar_testing.close()
+        metric = evaluate.load("accuracy")
 
-        test_accuracy = (test_correct * 1.0) / (test_correct + test_wrong)
+        def compute_metrics(eval_pred):
+            logits, labels = eval_pred
+            predictions = np.argmax(logits, axis=-1)
+            return metric.compute(predictions=predictions, references=labels)
 
-        training_round_step_dict = {
-            "model_state_dict": model.state_dict(),
-            "test_accuracy": test_accuracy,
-        }
+        trainer = Trainer(
+            model=model,
+            args=eval_args,
+            eval_dataset=tokenized_test_datasets,
+            compute_metrics=compute_metrics,
+        )
 
-        torch.save(training_round_step_dict, step_model_path)
+        metrics = trainer.evaluate()
+
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics, combined=False)
 
         self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="TRAINING_COMPLETE"
+            training_round_step_id=training_round_step_id, status="TESTING_COMPLETE"
         )
 
         # clear the cache
-        dataset.cleanup_cache_files()
+        test_dataset.cleanup_cache_files()
+
+    def _download_verify_model_file(self, url, destination_url, is_json=False):
+        response = requests.get(url)
+        response.raise_for_status()
+
+        # Implement checksum if file is dated
+        if is_json:
+            with open(destination_url, "w") as file:  # download json file
+                json_string = response.content.decode("utf-8")
+                json_data = json.loads(json_string)
+                # TEMPORARY FORMATTING FIX THIS SHOULD BE DONE IN UPLOADER
+                json_formatted = json.dumps(json_data, indent=2) + "\n"
+                file.write(json_formatted)
+        else:
+            with open(destination_url, "wb") as file:  # download binary file
+                file.write(response.content)
+
+    def verify_model(self):
+        config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
+        training_round_id = config["id"]
+        training_round_number = config["roundNumber"]
+        self._update_training_round(
+            training_round_id=training_round_id, status="CLAIMED"
+        )
+        config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
+
+        base_model = config["trainingJob"]["baseModel"]
+        base_model_revision = config["trainingJob"]["baseModelRevision"]
+        dataset_repo_id = config["trainingJob"]["baseDatasetRepoId"]
+        dataset_repo_revision = config["trainingJob"]["baseDatasetRepoRevision"]
+        verification_batch_size = 32
+
+        # create the folder for the verification round
+        # where the step model will be saved
+        verification_round_directory = (
+            f"{training_round_id}/{training_round_number}_verification"
+        )
+        verification_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            verification_round_directory
+        )
+
+        # download model from s3
+        query = gql(
+            """
+            query getAgentRoundPresignedUrls($trainingRoundId: String!, $trainingRoundNumber: Int!) {
+                getAgentRoundPresignedUrls(trainingRoundId: $trainingRoundId, trainingRoundNumber: $trainingRoundNumber) {
+                    roundModel
+                    config
+                }
+            }
+            """  # noqa
+        )
+        variables = {
+            "trainingRoundId": training_round_id,
+            "trainingRoundNumber": training_round_number,
+        }
+
+        result = self.spice.session.execute(query, variable_values=variables)
+
+        agent_round_presigned_round_model_url = result["getAgentRoundPresignedUrls"][
+            "roundModel"
+        ]
+
+        agent_presigned_config_url = result["getAgentRoundPresignedUrls"]["config"]
+
+        destination_round_file_url = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            f"{training_round_id}/{training_round_number}_pytorch_round_model.bin"
+        )
+
+        destination_config_url = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            f"{training_round_id}/config.json"
+        )
+
+        print("Downloading round model...")
+        self._update_training_round(
+            training_round_id=training_round_id, status="DOWNLOADING_ROUND_MODEL"
+        )
+        self._download_verify_model_file(
+            agent_round_presigned_round_model_url, destination_round_file_url
+        )
+
+        self._download_verify_model_file(
+            agent_presigned_config_url, destination_config_url, is_json=True
+        )
+
+        # download validation dataset
+        print("Loading verification dataset...")
+        self._update_training_round(
+            training_round_id=training_round_id,
+            status="DOWNLOADING_VERIFICATION_DATASET",
+        )
+
+        # We need to actually create validation files here
+        test_dataset = load_dataset(
+            path=dataset_repo_id, revision=dataset_repo_revision, split="test"
+        )
+
+        # get tokenizer from base model bert-base-cased
+        print("Loading tokenizer...")
+        tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name_or_path=base_model, revision=base_model_revision
+        )
+
+        # create a tokenize function that will tokenize the dataset
+        def tokenize_function(examples):
+            return tokenizer(examples["text"], padding="max_length", truncation=True)
+
+        print("Tokenizing dataset...")
+        tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
+
+        # Remove the text column because the model does not accept raw text as an input
+        tokenized_test_datasets = tokenized_test_datasets.map(
+            tokenize_function, batched=True
+        )
+
+        # Rename the label column to labels because
+        # the model expects the argument to be named labels
+        tokenized_test_datasets = tokenized_test_datasets.rename_column(
+            "label", "labels"
+        )
+
+        # Set the format of the dataset to return PyTorch tensors instead of lists
+        tokenized_test_datasets.set_format("torch")
+
+        # Load your model with the number of expected labels:
+        print("Loading base model...")
+        model = AutoModelForSequenceClassification.from_pretrained(
+            destination_round_file_url, num_labels=5
+        )
+
+        eval_args = TrainingArguments(
+            output_dir=str(verification_cache_for_training_round),
+            evaluation_strategy="epoch",
+            num_train_epochs=1,
+            per_device_eval_batch_size=verification_batch_size,
+            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
+            save_strategy="no",
+        )
+
+        metric = evaluate.load("accuracy")
+
+        def compute_metrics(eval_pred):
+            logits, labels = eval_pred
+            predictions = np.argmax(logits, axis=-1)
+            return metric.compute(predictions=predictions, references=labels)
+
+        trainer = Trainer(
+            model=model,
+            args=eval_args,
+            eval_dataset=tokenized_test_datasets,
+            compute_metrics=compute_metrics,
+        )
+
+        self._update_training_round(
+            training_round_id=training_round_id,
+            status="VERIFYING",
+        )
+        metrics = trainer.evaluate()
+
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics, combined=False)
+        print("Complete!")
+
+        self._update_training_round(
+            training_round_id=training_round_id,
+            status="VERIFYING_COMPLETE",
+        )
+
+        # clear the cache
+        test_dataset.cleanup_cache_files()
 
     def worker(self):
         try:
             while True:
                 self.spice.hardware.check_in_http(is_available=True)
 
-                # first check if this machine picked up a training round already
-                config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
-                has_step_to_complete = False
+                # check if this machine picked up a training round already
+                training_config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+
+                has_step_to_train = False
+                has_step_to_test = False
                 has_model_to_upload = False
-                if config.get("id", None) is not None:
-                    step_status = config.get("status", None)
+                has_round_to_verify = False
+
+                if training_config.get("id", None) is not None:
+                    step_status = training_config.get("status", None)
                     if step_status in ACTIVE_TRAINING_ROUND_STEP_STATUSES:
-                        has_step_to_complete = True
+                        has_step_to_train = True
+                    if step_status in ACTIVE_TESTING_STEP_STATUSES:
+                        has_step_to_test = True
                     elif step_status in ACTIVE_UPLOADING_STEP_STATUSES:
                         has_model_to_upload = True
 
-                if not has_step_to_complete and not has_model_to_upload:
+                if self.can_do_validation:
+                    verification_config = read_config_file(
+                        filepath=SPICE_ROUND_VERIFICATION_FILEPATH
+                    )
+                    if verification_config.get("id", None) is not None:
+                        step_status = verification_config.get("status", None)
+                        if step_status in ACTIVE_VERIFY_ROUND_STATUSES:
+                            has_round_to_verify = True
+
+                if (
+                    not has_step_to_train
+                    and not has_step_to_test
+                    and not has_model_to_upload
+                    and not has_round_to_verify
+                ):
                     self._consume()
-                if has_step_to_complete:
-                    print(f" [*] Using Device: {self.device} for training.")
-                    self.train()
+
+                if has_round_to_verify:
+                    print(
+                        f" [*] Validating - Using Device: {self.device} for validation"
+                    )
+                    self.verify_model()
+                if has_step_to_train:
+                    print(f" [*] Training - Using Device: {self.device} for training")
+                    self.train_model()
+                if has_step_to_test:
+                    print(f" [*] Testing - Using Device: {self.device} for testing")
+                    self.test_model()
                 if has_model_to_upload:
+                    print(" [*] Uploading")
                     self.upload_models()
 
         except KeyboardInterrupt:

@@ -267,10 +267,6 @@ def example_fine_tune_using_pytorch():
     output = metric.compute()
     print(output)
 
-    import ipdb
-
-    ipdb.set_trace()
-
     torch.save(model.state_dict(), "yelp-reviews-bert.pt")
 
     print("Complete")
