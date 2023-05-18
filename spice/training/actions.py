@@ -213,14 +213,12 @@ class Training:
         )
         return result
 
-    def _get_agent_round_presigned_urls(
-        self, training_round_id: str, training_round_number: str
-    ):
+    def _get_agent_round_presigned_urls(self, training_round_id: str):
         # todo: remove training_round_number
         query = gql(
             """
-            query getAgentRoundPresignedUrls($trainingRoundId: String!, $trainingRoundNumber: Int!) {
-                getAgentRoundPresignedUrls(trainingRoundId: $trainingRoundId, trainingRoundNumber: $trainingRoundNumber) {
+            query getAgentRoundPresignedUrls($trainingRoundId: String!) {
+                getAgentRoundPresignedUrls(trainingRoundId: $trainingRoundId) {
                     roundModel
                     config
                 }
@@ -229,7 +227,6 @@ class Training:
         )
         variables = {
             "trainingRoundId": training_round_id,
-            "trainingRoundNumber": training_round_number,
         }
 
         return self.spice.session.execute(query, variable_values=variables)
@@ -640,7 +637,6 @@ class Training:
         # get the presigned urls for a round's model + configs
         result = self._get_agent_round_presigned_urls(
             training_round_id=training_round_id,
-            training_round_number=training_round_number,
         )
 
         agent_round_presigned_round_model_url = result["getAgentRoundPresignedUrls"][
