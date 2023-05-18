@@ -138,7 +138,9 @@ class Training:
 
         return device
 
-    def _update_training_round(self, training_round_id: str, status: str):
+    def _update_training_round(
+        self, training_round_id: str, status: str, status_details: Optional[dict] = None
+    ):
         mutation = gql(
             """
             mutation updateTrainingRoundFromHardware($trainingRoundId: String!, $status: String!) {
@@ -160,6 +162,8 @@ class Training:
         variables = {"trainingRoundId": training_round_id}
         if status is not None:
             variables["status"] = status
+        if status_details:
+            variables["statusDetails"] = json.dumps(status_details)
         result = self.spice.session.execute(mutation, variable_values=variables)
         update_config_file(
             filepath=SPICE_ROUND_VERIFICATION_FILEPATH,
@@ -168,7 +172,11 @@ class Training:
         return result
 
     def _update_training_round_step(
-        self, training_round_step_id: str, status: str, file_id: Optional[str] = None
+        self,
+        training_round_step_id: str,
+        status: str,
+        status_details: Optional[dict] = None,
+        file_id: Optional[str] = None,
     ):
         mutation = gql(
             """
@@ -194,6 +202,8 @@ class Training:
         variables = {"trainingRoundStepId": training_round_step_id}
         if status is not None:
             variables["status"] = status
+        if status_details:
+            variables["statusDetails"] = json.dumps(status_details)
         if file_id is not None:
             variables["fileId"] = file_id
         result = self.spice.session.execute(mutation, variable_values=variables)
