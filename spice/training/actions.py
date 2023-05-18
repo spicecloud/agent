@@ -418,7 +418,9 @@ class Training:
 
         # Load your model with the number of expected labels:
         print("Loading base model...")
-        model = AutoModelForSequenceClassification.from_pretrained(base_model)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            base_model, num_labels=5
+        )
 
         training_args = TrainingArguments(
             output_dir=str(model_cache_for_training_round),
@@ -554,13 +556,21 @@ class Training:
         # clear the cache
         test_dataset.cleanup_cache_files()
 
-    def _download_verify_model_file(self, url, destination_url):
+    def _download_verify_model_file(self, url, destination_url, is_json=False):
         response = requests.get(url)
         response.raise_for_status()
 
         # Implement checksum if file is dated
-        with open(destination_url, "wb") as file:
-            file.write(response.content)
+        if is_json:
+            with open(destination_url, "w") as file:  # download json file
+                json_string = response.content.decode("utf-8")
+                json_data = json.loads(json_string)
+                # TEMPORARY FORMATTING FIX THIS SHOULD BE DONE IN UPLOADER
+                json_formatted = json.dumps(json_data, indent=2) + "\n"
+                file.write(json_formatted)
+        else:
+            with open(destination_url, "wb") as file:  # download binary file
+                file.write(response.content)
 
     def verify_model(self):
         config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
@@ -589,8 +599,11 @@ class Training:
         # download model from s3
         query = gql(
             """
-            query getAgentPresignedRoundFileDownloadUrl($trainingRoundId: String!, $trainingRoundNumber: Int!) {
-                getAgentPresignedRoundFileDownloadUrl(trainingRoundId: $trainingRoundId, trainingRoundNumber: $trainingRoundNumber)
+            query getAgentRoundPresignedUrls($trainingRoundId: String!, $trainingRoundNumber: Int!) {
+                getAgentRoundPresignedUrls(trainingRoundId: $trainingRoundId, trainingRoundNumber: $trainingRoundNumber) {
+                    roundModel
+                    config
+                }
             }
             """  # noqa
         )
@@ -600,12 +613,19 @@ class Training:
         }
 
         result = self.spice.session.execute(query, variable_values=variables)
-        agent_presigned_round_file_download_url = result[
-            "getAgentPresignedRoundFileDownloadUrl"
+
+        agent_round_presigned_round_model_url = result["getAgentRoundPresignedUrls"][
+            "roundModel"
         ]
 
-        destination_url = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+        agent_presigned_config_url = result["getAgentRoundPresignedUrls"]["config"]
+
+        destination_round_file_url = SPICE_MODEL_CACHE_FILEPATH.joinpath(
             f"{training_round_id}/{training_round_number}_pytorch_round_model.bin"
+        )
+
+        destination_config_url = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            f"{training_round_id}/config.json"
         )
 
         print("Downloading round model...")
@@ -613,7 +633,11 @@ class Training:
             training_round_id=training_round_id, status="DOWNLOADING_ROUND_MODEL"
         )
         self._download_verify_model_file(
-            agent_presigned_round_file_download_url, destination_url
+            agent_round_presigned_round_model_url, destination_round_file_url
+        )
+
+        self._download_verify_model_file(
+            agent_presigned_config_url, destination_config_url, is_json=True
         )
 
         # download validation dataset
@@ -658,7 +682,7 @@ class Training:
         # Load your model with the number of expected labels:
         print("Loading base model...")
         model = AutoModelForSequenceClassification.from_pretrained(
-            destination_url, num_labels=5
+            destination_round_file_url, num_labels=5
         )
 
         eval_args = TrainingArguments(
