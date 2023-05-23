@@ -21,7 +21,10 @@ def cli(context):
 def whoami_command(context):
     """Whoami"""
     spice = context.obj.get("SPICE")
-    message = spice.auth.whoami()
+    result = spice.auth.whoami()
+    message = f"Logged in as {result['whoami']['username']}"
+    if context.obj["JSON"]:
+        message = result
     print_result(message=message, context=context)
 
 
