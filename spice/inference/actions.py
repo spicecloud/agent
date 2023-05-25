@@ -46,32 +46,32 @@ class Inference:
         if os_family == "Darwin" and torch.backends.mps.is_available():
             device = torch.device("mps")
             if self.spice.DEBUG:
-                print("Using MPS device.")
+                LOGGER.info("Using MPS device.")
         else:
             if device is None and self.spice.DEBUG:
                 # in debug mode why is it not available
                 if not torch.backends.mps.is_built():
-                    print(
+                    LOGGER.info(
                         "MPS not available because the current PyTorch install was not built with MPS enabled."  # noqa
                     )
                 else:
-                    print(
+                    LOGGER.info(
                         "MPS not available because the current macOS version is not 12.3+ and/or you do not have an MPS-enabled device on this machine."  # noqa
                     )
 
         if device is None and torch.cuda.is_available():
             device = torch.device("cuda:0")
             if self.spice.DEBUG:
-                print("Using CUDA device.")
+                LOGGER.info("Using CUDA device.")
         else:
             if device is None and self.spice.DEBUG:
                 # in debug mode why is it not available
                 if not torch.backends.cuda.is_built():
-                    print(
+                    LOGGER.info(
                         "CUDA not available because the current PyTorch install was not built with CUDA enabled."  # noqa
                     )
                 else:
-                    print(
+                    LOGGER.info(
                         "CUDA not available because the current you do not have an CUDA-enabled device on this machine."  # noqa
                     )
 
@@ -79,7 +79,7 @@ class Inference:
             # fallback to CPU
             device = torch.device("cpu")
             if self.spice.DEBUG:
-                print("Using cpu.")
+                LOGGER.info("Using cpu.")
 
         return device
 
@@ -130,7 +130,7 @@ class Inference:
         return result
 
     def run_pipeline_callback(self, channel, method, properties, body: str):
-        print(" [*] Processing message.")
+        LOGGER.info(" [*] Processing message.")
         body = json.loads(body.decode("utf-8"))
         model = body["model"]
         if not model:
@@ -141,7 +141,7 @@ class Inference:
             raise Exception(f'No input found in message body: {body.decode("utf-8")}')
         run_id = body["run_id"]
 
-        print(f""" [*] Run ID: {run_id}. Model: {model}. Input: {new_input}""")
+        LOGGER.info(f""" [*] Run ID: {run_id}. Model: {model}. Input: {new_input}""")
         try:
             result = None
             if model == "bert-base-uncased":
@@ -152,7 +152,7 @@ class Inference:
                 raise Exception(
                     f"Unsupported model {model}. Please email support for addition."
                 )
-            print(f""" [*] SUCCESS. Result: " {result}""")
+            LOGGER.info(f""" [*] SUCCESS. Result: " {result}""")
             self.update_run_status(
                 run_id=run_id, status="SUCCESS", result=json.dumps(result)
             )
@@ -187,7 +187,7 @@ class Inference:
         )
 
         self.channel = connection.channel()
-        print(" [*] Channel connected.")
+        LOGGER.info(" [*] Channel connected.")
 
     @retry(pika.exceptions.AMQPConnectionError, delay=0, jitter=(1, 3))
     def _consume(self):
@@ -202,23 +202,23 @@ class Inference:
             auto_ack=True,
         )
         try:
-            print(" [*] Waiting for messages. To exit press CTRL+C")
+            LOGGER.info(" [*] Waiting for messages. To exit press CTRL+C")
             self.channel.start_consuming()
         except KeyboardInterrupt:
-            print(" [*] Stopping worker...")
+            LOGGER.info(" [*] Stopping worker...")
             if self.channel:
                 self.channel.stop_consuming()
                 self.channel.close()
             self.spice.hardware.check_in_http(is_available=False)
             sys.exit()
         except pika.exceptions.ConnectionClosedByBroker:
-            print(" [*] Connection closed by Broker.")
+            LOGGER.error(" [*] Connection closed by Broker.")
             if self.channel:
                 self.channel.stop_consuming()
                 self.channel.close()
             self.spice.hardware.check_in_http(is_available=False)
         except Exception as exception:
-            print(f"Exception: {exception}")
+            LOGGER.error(f"Exception: {exception}")
             if self.channel:
                 self.channel.stop_consuming()
                 self.channel.close()
@@ -226,7 +226,7 @@ class Inference:
             raise exception
 
     def worker(self):
-        print(f" [*] Using Device: {self.device} for inference.")
+        LOGGER.info(f" [*] Using Device: {self.device} for inference.")
         self.spice.hardware.check_in_http(is_available=True)
         self._consume()
 

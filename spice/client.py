@@ -3,6 +3,7 @@ from sentry_sdk import set_user
 
 from spice.__version__ import __version__
 from spice.auth.actions import Auth
+from spice.daemons.actions import Daemons
 from spice.graphql.sdk import create_session
 from spice.hardware.actions import Hardware
 from spice.inference.actions import Inference
@@ -54,3 +55,4 @@ class Spice:
         self.inference = Inference(self)
         self.training = Training(self)
         self.uploader = Uploader(self)
+        self.daemons = Daemons(self)

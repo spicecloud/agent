@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import subprocess
 
@@ -5,26 +6,54 @@ home_directory = Path.home()
 SPICE_LAUNCH_AGENT_FILEPATH = Path(
     home_directory / "Library" / "LaunchAgents" / "cloud.spice.agent.plist"
 )
-SPICE_LAUNCH_AGENT_LOGS_DIR = Path(home_directory / "Logs" / "cloud.spice.agent.log")
+SPICE_LAUNCH_AGENT_LOGS = Path(home_directory / "Logs" / "cloud.spice.agent.log")
 SPICE_LAUNCH_AGENT_NAME = "cloud.spice.agent"
 SPICE_LAUNCH_AGENT_WORKING_DIR = Path(home_directory / "Logs" / "cloud.spice.agent.log")
 
 
-def start_launch_agent():
+def stop_launch_agent():
     try:
         stop_existing_process = f"launchctl stop {SPICE_LAUNCH_AGENT_NAME}"
         subprocess.check_output(stop_existing_process.split(" "))
+        return True
     except subprocess.CalledProcessError:
         pass
+        return False
 
+
+def start_launch_agent():
+    try:
+        start_new_agent = f"launchctl start {SPICE_LAUNCH_AGENT_NAME}"
+        subprocess.check_output(start_new_agent.split(" "))
+        return True
+    except subprocess.CalledProcessError:
+        pass
+        return False
+
+
+def remove_launch_agent():
     try:
         remove_existing_agent = f"launchctl remove {SPICE_LAUNCH_AGENT_NAME}"
         subprocess.check_output(remove_existing_agent.split(" "))
+        return True
     except subprocess.CalledProcessError:
         pass
+        return False
 
-    SPICE_LAUNCH_AGENT_LOGS_DIR.parent.mkdir(parents=True, exist_ok=True)
-    SPICE_LAUNCH_AGENT_LOGS_DIR.touch()
+
+def load_launch_agent():
+    try:
+        load_new_plist = f"launchctl load {SPICE_LAUNCH_AGENT_FILEPATH}"
+        subprocess.check_output(load_new_plist.split(" "))
+        return True
+    except subprocess.CalledProcessError:
+        pass
+        return False
+
+
+def populate_fresh_launch_agent():
+    SPICE_LAUNCH_AGENT_LOGS.parent.mkdir(parents=True, exist_ok=True)
+    SPICE_LAUNCH_AGENT_LOGS.touch()
 
     if SPICE_LAUNCH_AGENT_FILEPATH.exists():
         SPICE_LAUNCH_AGENT_FILEPATH.unlink()
@@ -48,16 +77,15 @@ def start_launch_agent():
     <key>RunAtLoad</key>
     <true/>
     <key>StandardErrorPath</key>
-    <string>{SPICE_LAUNCH_AGENT_LOGS_DIR}</string>
+    <string>{SPICE_LAUNCH_AGENT_LOGS}</string>
     <key>StandardOutPath</key>
-    <string>{SPICE_LAUNCH_AGENT_LOGS_DIR}</string>
+    <string>{SPICE_LAUNCH_AGENT_LOGS}</string>
 </dict>
 </plist>"""
     )
     SPICE_LAUNCH_AGENT_FILEPATH.chmod(0o644)
 
-    load_new_plist = f"launchctl load {SPICE_LAUNCH_AGENT_FILEPATH}"
-    subprocess.check_output(load_new_plist.split(" "))
 
-    start_new_agent = f"launchctl start {SPICE_LAUNCH_AGENT_NAME}"
-    subprocess.check_output(start_new_agent.split(" "))
+def view_launch_agent_logs():
+    follow_logs = f"tail -f -n +1 {SPICE_LAUNCH_AGENT_LOGS}"
+    os.system(follow_logs)
