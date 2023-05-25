@@ -16,7 +16,7 @@ import transformers  # noqa
 from transformers import pipeline, set_seed  # noqa
 from transformers.pipelines.base import PipelineException  # noqa
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("")
 
 
 class Inference:
