@@ -25,7 +25,7 @@ def stop_daemon_command(context):
     """Stop spice Daemon"""
     spice = context.obj.get("SPICE")
     result = spice.daemons.stop()
-    message = f"stopping spice daemon"
+    message = "stopping spice daemon"
     if context.obj["JSON"]:
         message = result
     print_result(message=message, context=context)
@@ -37,7 +37,7 @@ def start_daemon_command(context):
     """Start spice Daemon"""
     spice = context.obj.get("SPICE")
     result = spice.daemons.start()
-    message = f"starting spice daemon"
+    message = "starting spice daemon"
     if context.obj["JSON"]:
         message = result
     print_result(message=message, context=context)
