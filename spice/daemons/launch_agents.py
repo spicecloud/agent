@@ -80,7 +80,6 @@ def populate_fresh_launch_agent():
 		<string>Background</string>
 		<string>LoginWindow</string>
 		<string>StandardIO</string>
-		<string>System</string>
 	</array>
     <key>ProgramArguments</key>
     <array>
