@@ -11,6 +11,7 @@ def create_session(
     fingerprint: str = None,
     fetch_schema_from_transport: bool = False,
 ):
+    print("reading @ create_session")
     existing_config = read_config_file()
     host_config = existing_config.get(host)
     if not host_config:

@@ -2,13 +2,13 @@ import json
 from pathlib import Path
 from typing import Dict
 
-home_directory = Path.home()
-SPICE_HOSTS_FILEPATH = Path(home_directory / ".config" / "spice" / "hosts.json")
-SPICE_TRAINING_FILEPATH = Path(home_directory / ".config" / "spice" / "training.json")
+HOME_DIRECTORY = Path.home()
+SPICE_HOSTS_FILEPATH = Path(HOME_DIRECTORY / ".config" / "spice" / "hosts.json")
+SPICE_TRAINING_FILEPATH = Path(HOME_DIRECTORY / ".config" / "spice" / "training.json")
 SPICE_ROUND_VERIFICATION_FILEPATH = Path(
-    home_directory / ".config" / "spice" / "training-verification.json"
+    HOME_DIRECTORY / ".config" / "spice" / "training-verification.json"
 )
-SPICE_MODEL_CACHE_FILEPATH = Path(home_directory / ".cache" / "spice" / "models")
+SPICE_MODEL_CACHE_FILEPATH = Path(HOME_DIRECTORY / ".cache" / "spice" / "models")
 
 
 def create_directory(filepath: Path = SPICE_MODEL_CACHE_FILEPATH):
@@ -23,6 +23,7 @@ def create_config_file(filepath: Path = SPICE_HOSTS_FILEPATH):
 
 
 def update_config_file(filepath: Path = SPICE_HOSTS_FILEPATH, new_config: Dict = {}):
+    print("reading @ update_config_file")
     existing_config = read_config_file(filepath=filepath)
     merged_config = {**existing_config, **new_config}
     with filepath.open("w") as json_file:
