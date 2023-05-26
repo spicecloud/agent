@@ -17,8 +17,8 @@ def stop_launch_agent():
         stop_existing_process = f"launchctl stop {SPICE_LAUNCH_AGENT_NAME}"
         subprocess.check_output(stop_existing_process.split(" "))
         return True
-    except subprocess.CalledProcessError:
-        pass
+    except subprocess.CalledProcessError as exception:
+        print(exception)
         return False
 
 
@@ -27,18 +27,20 @@ def start_launch_agent():
         start_new_agent = f"launchctl start {SPICE_LAUNCH_AGENT_NAME}"
         subprocess.check_output(start_new_agent.split(" "))
         return True
-    except subprocess.CalledProcessError:
-        pass
+    except subprocess.CalledProcessError as exception:
+        print(exception)
         return False
 
 
 def remove_launch_agent():
     try:
+        remove_existing_agent = f"launchctl unload {SPICE_LAUNCH_AGENT_NAME}"
+        subprocess.check_output(remove_existing_agent.split(" "))
         remove_existing_agent = f"launchctl remove {SPICE_LAUNCH_AGENT_NAME}"
         subprocess.check_output(remove_existing_agent.split(" "))
         return True
-    except subprocess.CalledProcessError:
-        pass
+    except subprocess.CalledProcessError as exception:
+        print(exception)
         return False
 
 
@@ -47,8 +49,8 @@ def load_launch_agent():
         load_new_plist = f"launchctl load {SPICE_LAUNCH_AGENT_FILEPATH}"
         subprocess.check_output(load_new_plist.split(" "))
         return True
-    except subprocess.CalledProcessError:
-        pass
+    except subprocess.CalledProcessError as exception:
+        print(exception)
         return False
 
 
