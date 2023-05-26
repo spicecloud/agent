@@ -1,22 +1,16 @@
+from typing import Dict
+
 from gql import Client
 from gql.transport.aiohttp import AIOHTTPTransport
 
 from spice.__version__ import __version__
 
-from ..utils.config import read_config_file
-
 
 def create_session(
+    host_config: Dict,
     host: str = "api.spice.cloud",
-    fingerprint: str = None,
     fetch_schema_from_transport: bool = False,
 ):
-    print("reading @ create_session")
-    existing_config = read_config_file()
-    host_config = existing_config.get(host)
-    if not host_config:
-        raise KeyError(f"Host {host} not found in config file.")
-
     token = host_config.get("token")
     transport = host_config.get("transport")
     url = f"{transport}://{host}/"
@@ -28,7 +22,7 @@ def create_session(
     if token:
         headers["Authorization"] = f"Token {token}"
 
-    if fingerprint:
+    if fingerprint := host_config.get("fingerprint", None):
         headers["x-spice-fingerprint"] = fingerprint
     transport = AIOHTTPTransport(url=url, headers=headers)
     session = Client(

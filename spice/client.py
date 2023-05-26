@@ -60,9 +60,7 @@ class Spice:
         else:
             set_user({"username": self.host_config["username"]})
 
-        self.session = create_session(
-            host=self.host, fingerprint=self.host_config.get("fingerprint", None)
-        )
+        self.session = create_session(host=self.host, host_config=self.host_config)
 
         self.auth = Auth(self)
         self.hardware = Hardware(self)
