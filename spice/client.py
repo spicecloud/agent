@@ -14,21 +14,22 @@ from spice.training.actions import Training
 from spice.uploader.actions import Uploader
 from spice.utils.config import read_config_file
 
-logger = logging.getLogger("")
-logger.setLevel(logging.INFO)
-sh = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter(
-    "[%(asctime)s] %(levelname)s [%(filename)s.%(funcName)s:%(lineno)d] %(message)s",
-    datefmt="%a, %d %b %Y %H:%M:%S",
-)
-sh.setFormatter(formatter)
-logger.addHandler(sh)
-
 
 class Spice:
     def __init__(self, host: str = "api.spice.cloud", DEBUG: bool = False) -> None:
         self.host = host
         self.DEBUG = DEBUG
+
+        if DEBUG:
+            logger = logging.getLogger("")
+            logger.setLevel(logging.INFO)
+            sh = logging.StreamHandler(sys.stdout)
+            formatter = logging.Formatter(
+                "[%(asctime)s] %(levelname)s [%(filename)s.%(funcName)s:%(lineno)d] %(message)s",  # noqa
+                datefmt="%a, %d %b %Y %H:%M:%S",
+            )
+            sh.setFormatter(formatter)
+            logger.addHandler(sh)
 
         environment = "production"
         if "localhost" in host:
