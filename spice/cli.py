@@ -7,6 +7,7 @@ from spice.__version__ import __version__
 from spice.client import Spice
 
 from .auth.commands import config_command, whoami_command
+from .daemons.commands import cli as daemons_cli
 from .hardware.commands import cli as hardware_cli
 from .inference.commands import cli as inference_cli
 from .training.commands import cli as training_cli
@@ -58,7 +59,7 @@ cli.add_command(whoami_command, "whoami")
 cli.add_command(hardware_cli, "hardware")
 cli.add_command(inference_cli, "inference")
 cli.add_command(training_cli, "training")
-
+cli.add_command(daemons_cli, "daemon")
 
 if __name__ == "__main__":
     cli(obj={})
