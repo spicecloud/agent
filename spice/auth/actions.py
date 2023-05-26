@@ -27,7 +27,6 @@ class Auth:
         host: str = "api.spice.cloud",
         transport: str = "https",
     ):
-        print("reading @ setup_config")
         full_config = read_config_file()
         new_host_config = {
             "username": username,

@@ -23,7 +23,6 @@ def create_config_file(filepath: Path = SPICE_HOSTS_FILEPATH):
 
 
 def update_config_file(filepath: Path = SPICE_HOSTS_FILEPATH, new_config: Dict = {}):
-    print("reading @ update_config_file")
     existing_config = read_config_file(filepath=filepath)
     merged_config = {**existing_config, **new_config}
     with filepath.open("w") as json_file:

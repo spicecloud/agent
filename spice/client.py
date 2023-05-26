@@ -51,7 +51,6 @@ class Spice:
             release=f"spice@{__version__}",
         )
 
-        print("reading @ Spice.__init__")
         self.full_config = read_config_file()
         self.host_config = self.full_config.get(self.host)
 
