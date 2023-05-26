@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 
 home_directory = Path.home()
+SPICE_BINARY_PATH = Path(home_directory / ".pyenv" / "shims" / "spice")
 SPICE_LAUNCH_AGENT_FILEPATH = Path(
     home_directory / "Library" / "LaunchAgents" / "cloud.spice.agent.plist"
 )
@@ -70,7 +71,7 @@ def populate_fresh_launch_agent():
     <string>{SPICE_LAUNCH_AGENT_NAME}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/dylan/.pyenv/shims/spice</string>
+        <string>{SPICE_BINARY_PATH}</string>
         <string>inference</string>
         <string>worker</string>
     </array>
