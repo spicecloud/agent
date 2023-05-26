@@ -9,7 +9,9 @@ SPICE_BINARY_PATH = Path(HOME_DIRECTORY / ".pyenv" / "shims" / "spice")
 SPICE_LAUNCH_AGENT_FILEPATH = Path(
     HOME_DIRECTORY / "Library" / "LaunchAgents" / "cloud.spice.agent.plist"
 )
-SPICE_LAUNCH_AGENT_LOGS = Path(HOME_DIRECTORY / "Logs" / "cloud.spice.agent.log")
+SPICE_LAUNCH_AGENT_LOGS = Path(
+    HOME_DIRECTORY / "Library" / "Logs" / "cloud.spice.agent.log"
+)
 SPICE_LAUNCH_AGENT_LABEL = "cloud.spice.agent"
 SPICE_LAUNCH_AGENT_WORKING_DIR = Path(HOME_DIRECTORY / "Logs" / "cloud.spice.agent.log")
 
