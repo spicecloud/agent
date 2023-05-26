@@ -1,9 +1,8 @@
 import platform
 
 from spice.daemons.launch_agents import (
-    load_launch_agent,
-    populate_fresh_launch_agent,
-    remove_launch_agent,
+    full_launch_agent_install,
+    full_launch_agent_uninstall,
     start_launch_agent,
     stop_launch_agent,
     view_launch_agent_logs,
@@ -16,11 +15,28 @@ class Daemons:
         self.os_family = platform.system()
 
     def install(self):
-        stop_launch_agent()
-        remove_launch_agent()
-        populate_fresh_launch_agent()
-        load_launch_agent()
-        start_launch_agent()
+        result = True
+        if self.os_family == "Darwin":
+            full_launch_agent_install()
+        elif self.os_family == "Linux":
+            print("Not Implemented")
+            if "WSL2" in platform.platform():
+                print("Not Implemented")
+        elif self.os_family == "Windows":
+            print("Not Implemented")
+        return result
+
+    def uninstall(self):
+        result = True
+        if self.os_family == "Darwin":
+            full_launch_agent_uninstall()
+        elif self.os_family == "Linux":
+            print("Not Implemented")
+            if "WSL2" in platform.platform():
+                print("Not Implemented")
+        elif self.os_family == "Windows":
+            print("Not Implemented")
+        return result
 
     def stop(self) -> bool:
         result = True

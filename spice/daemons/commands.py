@@ -19,6 +19,15 @@ def install_daemon_command(context):
     print_result(message=result, context=context)
 
 
+@cli.command("uninstall")
+@click.pass_context
+def uninstall_daemon_command(context):
+    """Uninstall the full spice Daemon"""
+    spice = context.obj.get("SPICE")
+    result = spice.daemons.uninstall()
+    print_result(message=result, context=context)
+
+
 @cli.command("stop")
 @click.pass_context
 def stop_daemon_command(context):
