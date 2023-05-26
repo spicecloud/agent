@@ -2,14 +2,14 @@ import os
 from pathlib import Path
 import subprocess
 
-home_directory = Path.home()
-SPICE_BINARY_PATH = Path(home_directory / ".pyenv" / "shims" / "spice")
+HOME_DIRECTORY = Path.home()
+SPICE_BINARY_PATH = Path(HOME_DIRECTORY / ".pyenv" / "shims" / "spice")
 SPICE_LAUNCH_AGENT_FILEPATH = Path(
-    home_directory / "Library" / "LaunchAgents" / "cloud.spice.agent.plist"
+    HOME_DIRECTORY / "Library" / "LaunchAgents" / "cloud.spice.agent.plist"
 )
-SPICE_LAUNCH_AGENT_LOGS = Path(home_directory / "Logs" / "cloud.spice.agent.log")
+SPICE_LAUNCH_AGENT_LOGS = Path(HOME_DIRECTORY / "Logs" / "cloud.spice.agent.log")
 SPICE_LAUNCH_AGENT_NAME = "cloud.spice.agent"
-SPICE_LAUNCH_AGENT_WORKING_DIR = Path(home_directory / "Logs" / "cloud.spice.agent.log")
+SPICE_LAUNCH_AGENT_WORKING_DIR = Path(HOME_DIRECTORY / "Logs" / "cloud.spice.agent.log")
 
 
 def stop_launch_agent():
@@ -18,7 +18,7 @@ def stop_launch_agent():
         subprocess.check_output(stop_existing_process.split(" "))
         return True
     except subprocess.CalledProcessError as exception:
-        print(exception)
+        print("stop_launch_agent: ", exception)
         return False
 
 
@@ -28,7 +28,7 @@ def start_launch_agent():
         subprocess.check_output(start_new_agent.split(" "))
         return True
     except subprocess.CalledProcessError as exception:
-        print(exception)
+        print("start_launch_agent: ", exception)
         return False
 
 
@@ -40,7 +40,7 @@ def remove_launch_agent():
         subprocess.check_output(remove_existing_agent.split(" "))
         return True
     except subprocess.CalledProcessError as exception:
-        print(exception)
+        print("remove_launch_agent: ", exception)
         return False
 
 
@@ -50,7 +50,7 @@ def load_launch_agent():
         subprocess.check_output(load_new_plist.split(" "))
         return True
     except subprocess.CalledProcessError as exception:
-        print(exception)
+        print("load_launch_agent: ", exception)
         return False
 
 
@@ -83,6 +83,8 @@ def populate_fresh_launch_agent():
     <string>{SPICE_LAUNCH_AGENT_LOGS}</string>
     <key>StandardOutPath</key>
     <string>{SPICE_LAUNCH_AGENT_LOGS}</string>
+    <key>WorkingDirectory</key>
+    <string>{HOME_DIRECTORY}</string>
 </dict>
 </plist>"""
     )
