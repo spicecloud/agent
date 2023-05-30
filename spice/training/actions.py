@@ -47,7 +47,6 @@ ACTIVE_VERIFY_ROUND_STATUSES = {
     "DOWNLOADING_ROUND_MODEL",
     "DOWNLOADING_VERIFICATION_DATASET",
     "VERIFYING",
-    "VERIFYING_COMPLETE",
 }
 
 ACTIVE_TRAINING_ROUND_STEP_STATUSES = [
@@ -634,6 +633,10 @@ class Training:
             verification_round_directory
         )
 
+        spice_model_round_cache = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            f"{training_round_id}/"
+        )
+
         # get the presigned urls for a round's model + configs
         result = self._get_agent_round_presigned_urls(
             training_round_id=training_round_id,
@@ -645,7 +648,7 @@ class Training:
         agent_presigned_config_url = result["getAgentRoundPresignedUrls"]["config"]
 
         destination_round_file_url = SPICE_MODEL_CACHE_FILEPATH.joinpath(
-            f"{training_round_id}/{training_round_number}_pytorch_round_model.bin"
+            f"{training_round_id}/pytorch_model.bin"
         )
 
         destination_config_url = SPICE_MODEL_CACHE_FILEPATH.joinpath(
@@ -706,7 +709,7 @@ class Training:
         # Load your model with the number of expected labels:
         print("Loading base model...")
         model = AutoModelForSequenceClassification.from_pretrained(
-            destination_round_file_url, num_labels=5
+            spice_model_round_cache, num_labels=5
         )
 
         eval_args = TrainingArguments(
@@ -744,11 +747,11 @@ class Training:
 
         self._update_training_round(
             training_round_id=training_round_id,
-            status="VERIFYING_COMPLETE",
+            status="VERIFY_COMPLETE",
         )
 
         # clear the cache
-        test_dataset.cleanup_cache_files()
+        # test_dataset.cleanup_cache_files()
 
     def worker(self):
         try:
