@@ -62,43 +62,71 @@ ACTIVE_UPLOADING_STEP_STATUSES = [
 MODEL_BUCKET_NAME = "spice-models"
 
 
-class TrainingStatusCallback(transformers.TrainerCallback):
+class StatusDetailsCallback(transformers.TrainerCallback):
     """
     A [`TrainerCallback`] that sends the progress of training or evaluation
     to the spice backend.
     """
 
-    def __init__(self, training, training_round_step_id):
+    def __init__(
+        self,
+        training,
+        status: str,
+        training_round_step_id: Optional[str] = None,
+        training_round_id: Optional[str] = None,
+    ):
         self.training = training
+        self.status = status
         self.training_round_step_id = training_round_step_id
+        self.training_round_id = training_round_id
 
     def on_train_begin(self, args, state, control, **kwargs):
         if state.is_local_process_zero:
-            self.training._update_training_round_step(
-                training_round_step_id=self.training_round_step_id,
-                status="TRAINING",
-                status_details={"progress": 0},
-            )
+            if self.training_round_step_id:
+                self.training._update_training_round_step(
+                    training_round_step_id=self.training_round_step_id,
+                    status=self.status,
+                    status_details={"progress": 0},
+                )
+            if self.training_round_id:
+                self.training._update_training_round(
+                    training_round_id=self.training_round_id,
+                    status=self.status,
+                    status_details={"progress": 0},
+                )
         self.current_step = 0
 
     def on_step_end(self, args, state, control, **kwargs):
         if state.is_local_process_zero:
-            self.training._update_training_round_step(
-                training_round_step_id=self.training_round_step_id,
-                status="TRAINING",
-                status_details={
-                    "progress": round((state.global_step / state.max_steps) * 100)
-                },
-            )
+            progress = round((state.global_step / state.max_steps) * 100)
+            if self.training_round_step_id:
+                self.training._update_training_round_step(
+                    training_round_step_id=self.training_round_step_id,
+                    status=self.status,
+                    status_details={"progress": progress},
+                )
+            if self.training_round_id:
+                self.training._update_training_round(
+                    training_round_id=self.training_round_id,
+                    status=self.status,
+                    status_details={"progress": progress},
+                )
             self.current_step = state.global_step
 
     def on_train_end(self, args, state, control, **kwargs):
         if state.is_local_process_zero:
-            self.training._update_training_round_step(
-                training_round_step_id=self.training_round_step_id,
-                status="TRAINING",
-                status_details={"progress": 100},
-            )
+            if self.training_round_step_id:
+                self.training._update_training_round_step(
+                    training_round_step_id=self.training_round_step_id,
+                    status=self.status,
+                    status_details={"progress": 100},
+                )
+            if self.training_round_id:
+                self.training._update_training_round(
+                    training_round_id=self.training_round_id,
+                    status=self.status,
+                    status_details={"progress": 0},
+                )
 
 
 class Training:
@@ -332,8 +360,10 @@ class Training:
             predictions = np.argmax(logits, axis=-1)
             return metric.compute(predictions=predictions, references=labels)
 
-        training_status_callback = TrainingStatusCallback(
-            training=self, training_round_step_id=training_round_step_id
+        status_details_callback = StatusDetailsCallback(
+            training=self,
+            status="TRAINING",
+            training_round_step_id=training_round_step_id,
         )
 
         trainer = Trainer(
@@ -341,7 +371,7 @@ class Training:
             args=training_args,
             train_dataset=tokenized_datasets,
             compute_metrics=compute_metrics,
-            callbacks=[training_status_callback],
+            callbacks=[status_details_callback],
         )
 
         self._update_training_round_step(
@@ -442,11 +472,18 @@ class Training:
             predictions = np.argmax(logits, axis=-1)
             return metric.compute(predictions=predictions, references=labels)
 
+        status_details_callback = StatusDetailsCallback(
+            training=self,
+            training_round_step_id=training_round_step_id,
+            status="TESTING",
+        )
+
         trainer = Trainer(
             model=model,
             args=eval_args,
             eval_dataset=tokenized_test_datasets,
             compute_metrics=compute_metrics,
+            callbacks=[status_details_callback],
         )
 
         self._update_training_round_step(
@@ -601,11 +638,18 @@ class Training:
             predictions = np.argmax(logits, axis=-1)
             return metric.compute(predictions=predictions, references=labels)
 
+        status_details_callback = StatusDetailsCallback(
+            training=self,
+            training_round_id=training_round_id,
+            status="VERIFYING",
+        )
+
         trainer = Trainer(
             model=model,
             args=eval_args,
             eval_dataset=tokenized_test_datasets,
             compute_metrics=compute_metrics,
+            callbacks=[status_details_callback],
         )
 
         self._update_training_round(
