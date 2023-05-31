@@ -51,7 +51,7 @@ class Worker:
         self.spice = spice
         self.channel = None
         self.device = self.spice.get_device()
-        self.can_do_validation = "cuda" in self.device.get_device().type
+        self.can_do_validation = "cuda" in self.device.type
 
         # logging.basicConfig(level=logging.INFO)
         if self.spice.DEBUG:
