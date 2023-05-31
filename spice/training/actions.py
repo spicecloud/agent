@@ -131,6 +131,10 @@ class Training:
                     trainingBatchSize
                     trainingRound {
                         id
+                        roundNumber
+                        trainingJob {
+                            id
+                        }
                     }
                 }
             }
@@ -209,12 +213,14 @@ class Training:
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
         training_round_id = config["trainingRound"]["id"]
+        training_round_number = config["trainingRound"]["roundNumber"]
+        training_job_id = config["trainingRound"]["trainingJob"]["id"]
         training_round_directory = f"{training_round_id}/steps/{training_round_step_id}"
 
         # round_id_step_id will be in form: [uuid]/steps/[uuid]
         # round_id_step_id is used for finding the step model in the cache
         # and as the key in S3
-        bucket_dir = f"{training_round_id}/steps/{training_round_step_id}/"
+        bucket_dir = f"{training_job_id}/rounds/{training_round_number}/steps/{training_round_step_id}/"  # noqa
 
         # model_cache_for_training_round contains all the step models
         # for this particular training round
