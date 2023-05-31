@@ -751,7 +751,7 @@ class Training:
         )
 
         # clear the cache
-        # test_dataset.cleanup_cache_files()
+        test_dataset.cleanup_cache_files()
 
     def worker(self):
         try:
