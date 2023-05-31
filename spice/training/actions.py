@@ -29,8 +29,6 @@ from spice.utils.config import (
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import torch  # noqa
-from torch.optim import AdamW  # noqa
-from torch.utils.data import DataLoader  # noqa
 import transformers  # noqa
 
 LOGGER = logging.getLogger(__name__)
@@ -62,6 +60,45 @@ ACTIVE_UPLOADING_STEP_STATUSES = [
 
 
 MODEL_BUCKET_NAME = "spice-models"
+
+
+class TrainingStatusCallback(transformers.TrainerCallback):
+    """
+    A [`TrainerCallback`] that sends the progress of training or evaluation
+    to the spice backend.
+    """
+
+    def __init__(self, training, training_round_step_id):
+        self.training = training
+        self.training_round_step_id = training_round_step_id
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        if state.is_local_process_zero:
+            self.training._update_training_round_step(
+                training_round_step_id=self.training_round_step_id,
+                status="TRAINING",
+                status_details={"progress": 0},
+            )
+        self.current_step = 0
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.is_local_process_zero:
+            self.training._update_training_round_step(
+                training_round_step_id=self.training_round_step_id,
+                status="TRAINING",
+                status_details={
+                    "progress": round((state.global_step / state.max_steps) * 100)
+                },
+            )
+            self.current_step = state.global_step
+
+    def on_train_end(self, args, state, control, **kwargs):
+        if state.is_local_process_zero:
+            self.training._update_training_round_step(
+                training_round_step_id=self.training_round_step_id,
+                status="TRAINING",
+                status_details={"progress": 100},
+            )
 
 
 class Training:
@@ -117,8 +154,8 @@ class Training:
     ):
         mutation = gql(
             """
-            mutation updateTrainingRoundStepFromHardware($trainingRoundStepId: String!, $status: String!, $fileId: String) {
-                updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status, fileId: $fileId) {
+            mutation updateTrainingRoundStepFromHardware($trainingRoundStepId: String!, $status: String!, $fileId: String, $statusDetails: JSON) {
+                updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status, fileId: $fileId, statusDetails: $statusDetails) {
                     id
                     status
                     baseModel
@@ -132,6 +169,7 @@ class Training:
                     trainingRound {
                         id
                     }
+                    statusDetails
                 }
             }
         """  # noqa
@@ -202,11 +240,6 @@ class Training:
                     file_checksum=file_checksum,
                     location=f"s3://{bucket_key}",
                 )
-                # self._update_training_round_step(
-                #     training_round_step_id=training_round_step_id,
-                #     status="REQUEST_UPLOAD",
-                #     file_id=file_id,
-                # )
                 self.spice.uploader.upload_file(
                     bucket_name=MODEL_BUCKET_NAME,
                     key=bucket_key,
@@ -299,11 +332,16 @@ class Training:
             predictions = np.argmax(logits, axis=-1)
             return metric.compute(predictions=predictions, references=labels)
 
+        training_status_callback = TrainingStatusCallback(
+            training=self, training_round_step_id=training_round_step_id
+        )
+
         trainer = Trainer(
             model=model,
             args=training_args,
             train_dataset=tokenized_datasets,
             compute_metrics=compute_metrics,
+            callbacks=[training_status_callback],
         )
 
         self._update_training_round_step(
@@ -346,7 +384,7 @@ class Training:
         )
 
         # get dataset
-        print("Loading dataset...")
+        print("Loading test dataset...")
         self._update_training_round_step(
             training_round_step_id=training_round_step_id,
             status="DOWNLOADING_TESTING_DATASET",
