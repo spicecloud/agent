@@ -11,6 +11,7 @@ from .daemons.commands import cli as daemons_cli
 from .hardware.commands import cli as hardware_cli
 from .inference.commands import cli as inference_cli
 from .training.commands import cli as training_cli
+from .worker.commands import cli as worker_cli
 
 
 @click.group()
@@ -60,6 +61,7 @@ cli.add_command(hardware_cli, "hardware")
 cli.add_command(inference_cli, "inference")
 cli.add_command(training_cli, "training")
 cli.add_command(daemons_cli, "daemon")
+cli.add_command(worker_cli, "worker")
 
 if __name__ == "__main__":
     cli(obj={})

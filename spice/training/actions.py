@@ -2,21 +2,14 @@ import hashlib
 import json
 import logging
 import os
-import platform
-import ssl
-import sys
 from typing import Optional
 
 from datasets import load_dataset
 import evaluate
 from gql import gql
 import numpy as np
-import pika
-from pika.exceptions import AMQPConnectionError, ConnectionClosedByBroker
 import requests
-from retry import retry
 import torch  # noqa
-from torch.mps import empty_cache
 from transformers import (  # noqa
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -74,68 +67,13 @@ MODEL_BUCKET_NAME = "spice-models"
 class Training:
     def __init__(self, spice) -> None:
         self.spice = spice
-        self.device = self.get_device()
-        self.channel = None
-        self.can_do_validation = "cuda" in self.device.type
+        self.device = self.spice.get_device()
 
         # logging.basicConfig(level=logging.INFO)
         if self.spice.DEBUG:
             transformers.logging.set_verbosity_debug()
             logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
             logging.getLogger("pika").setLevel(logging.ERROR)
-
-    def get_device(self):
-        """
-        First check if mps is available as a device
-        Then check for a CUDA device
-        Finally, fall back to CPU
-        """
-        device = None
-        os_family = platform.system()
-
-        # mps device enables high-performance training on GPU for macOS
-        # devices with Metal programming framework
-        # https://pytorch.org/docs/master/notes/mps.html
-        if os_family == "Darwin" and torch.backends.mps.is_available():  # type: ignore
-            device = torch.device("mps")
-            empty_cache()
-            if self.spice.DEBUG:
-                print("Using MPS device.")
-        else:
-            if device is None and self.spice.DEBUG:
-                # in debug mode why is it not available
-                if not torch.backends.mps.is_built():  # type: ignore
-                    print(
-                        "MPS not available because the current PyTorch install was not built with MPS enabled."  # noqa
-                    )
-                else:
-                    print(
-                        "MPS not available because the current macOS version is not 12.3+ and/or you do not have an MPS-enabled device on this machine."  # noqa
-                    )
-
-        if device is None and torch.cuda.is_available():
-            device = torch.device("cuda:0")
-            if self.spice.DEBUG:
-                print("Using CUDA device.")
-        else:
-            if device is None and self.spice.DEBUG:
-                # in debug mode why is it not available
-                if not torch.backends.cuda.is_built():  # type: ignore
-                    print(
-                        "CUDA not available because the current PyTorch install was not built with CUDA enabled."  # noqa
-                    )
-                else:
-                    print(
-                        "CUDA not available because the current you do not have an CUDA-enabled device on this machine."  # noqa
-                    )
-
-        if device is None:
-            # fallback to CPU
-            device = torch.device("cpu")
-            if self.spice.DEBUG:
-                print("Using cpu.")
-
-        return device
 
     def _update_training_round(
         self, training_round_id: str, status: str, status_details: Optional[dict] = None
@@ -266,72 +204,6 @@ class Training:
         if self.channel:
             self.channel.stop_consuming()
             self.channel.close()
-
-    def _create_channel(self):
-        credentials = pika.PlainCredentials(
-            self.spice.host_config["fingerprint"],
-            self.spice.host_config["rabbitmq_password"],
-        )
-
-        host = self.spice.host_config["rabbitmq_host"]
-        ssl_options = None
-        if "localhost" not in host:
-            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-            context.verify_mode = ssl.CERT_NONE
-            ssl_options = pika.SSLOptions(context)
-
-        connection = pika.BlockingConnection(
-            pika.ConnectionParameters(
-                host=self.spice.host_config["rabbitmq_host"],
-                port=self.spice.host_config["rabbitmq_port"],
-                virtual_host="training",
-                credentials=credentials,
-                ssl_options=ssl_options,
-            )
-        )
-
-        self.channel = connection.channel()
-        print(" [*] Channel connected.")
-
-    @retry(AMQPConnectionError, delay=0, jitter=(1, 3))
-    def _consume(self):
-        if self.channel is None or self.channel.is_closed:
-            self._create_channel()
-
-        if self.channel is None:
-            raise Exception(" [*] Channel cannot be opened.")
-
-        self.channel.basic_consume(
-            queue="default",
-            on_message_callback=self._claim_message_callback,
-        )
-
-        try:
-            print(" [*] Waiting for messages. To exit press CTRL+C")
-            self.channel.start_consuming()
-        except KeyboardInterrupt:
-            print(" [*] Stopping RabbitMQ consumer...")
-            if self.channel:
-                self.channel.stop_consuming()
-                self.channel.close()
-                self.channel = None
-            self.spice.hardware.check_in_http(is_available=False)
-            sys.exit()
-        except ConnectionClosedByBroker:
-            print(" [*] Connection closed by Broker.")
-            if self.channel:
-                self.channel.stop_consuming()
-                self.channel.close()
-                self.channel = None
-            self.spice.hardware.check_in_http(is_available=False)
-        except Exception as exception:
-            print(f"Exception: {exception}")
-            if self.channel:
-                self.channel.stop_consuming()
-                self.channel.close()
-                self.channel = None
-            self.spice.hardware.check_in_http(is_available=False)
-            raise exception
 
     def upload_models(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
@@ -752,66 +624,3 @@ class Training:
 
         # clear the cache
         test_dataset.cleanup_cache_files()
-
-    def worker(self):
-        try:
-            while True:
-                self.spice.hardware.check_in_http(is_available=True)
-
-                # check if this machine picked up a training round already
-                training_config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
-
-                has_step_to_train = False
-                has_step_to_test = False
-                has_model_to_upload = False
-                has_round_to_verify = False
-
-                if training_config.get("id", None) is not None:
-                    step_status = training_config.get("status", None)
-                    if step_status in ACTIVE_TRAINING_ROUND_STEP_STATUSES:
-                        has_step_to_train = True
-                    if step_status in ACTIVE_TESTING_STEP_STATUSES:
-                        has_step_to_test = True
-                    elif step_status in ACTIVE_UPLOADING_STEP_STATUSES:
-                        has_model_to_upload = True
-
-                if self.can_do_validation:
-                    verification_config = read_config_file(
-                        filepath=SPICE_ROUND_VERIFICATION_FILEPATH
-                    )
-                    if verification_config.get("id", None) is not None:
-                        step_status = verification_config.get("status", None)
-                        if step_status in ACTIVE_VERIFY_ROUND_STATUSES:
-                            has_round_to_verify = True
-
-                if (
-                    not has_step_to_train
-                    and not has_step_to_test
-                    and not has_model_to_upload
-                    and not has_round_to_verify
-                ):
-                    self._consume()
-
-                if has_round_to_verify:
-                    print(
-                        f" [*] Validating - Using Device: {self.device} for validation"
-                    )
-                    self.verify_model()
-                if has_step_to_train:
-                    print(f" [*] Training - Using Device: {self.device} for training")
-                    self.train_model()
-                if has_step_to_test:
-                    print(f" [*] Testing - Using Device: {self.device} for testing")
-                    self.test_model()
-                if has_model_to_upload:
-                    print(" [*] Uploading")
-                    self.upload_models()
-
-        except KeyboardInterrupt:
-            print(" [*] Stopping worker...")
-            if self.channel:
-                self.channel.stop_consuming()
-                self.channel.close()
-                self.channel = None
-            self.spice.hardware.check_in_http(is_available=False)
-            sys.exit()
