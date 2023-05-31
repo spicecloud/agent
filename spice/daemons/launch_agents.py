@@ -84,8 +84,8 @@ def populate_fresh_launch_agent():
     <key>ProgramArguments</key>
     <array>
         <string>{SPICE_BINARY_PATH}</string>
-        <string>inference</string>
         <string>worker</string>
+        <string>start</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

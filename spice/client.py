@@ -1,8 +1,12 @@
 import logging
+import os
+import platform
 import sys
 
 import sentry_sdk
 from sentry_sdk import set_user
+import torch  # noqa
+from torch.mps import empty_cache
 
 from spice.__version__ import __version__
 from spice.auth.actions import Auth
@@ -13,6 +17,11 @@ from spice.inference.actions import Inference
 from spice.training.actions import Training
 from spice.uploader.actions import Uploader
 from spice.utils.config import read_config_file
+from spice.worker.actions import Worker
+
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+import torch  # noqa
 
 
 class Spice:
@@ -20,16 +29,15 @@ class Spice:
         self.host = host
         self.DEBUG = DEBUG
 
-        if DEBUG:
-            logger = logging.getLogger("")
-            logger.setLevel(logging.INFO)
-            sh = logging.StreamHandler(sys.stdout)
-            formatter = logging.Formatter(
-                "[%(asctime)s] %(levelname)s [%(filename)s.%(funcName)s:%(lineno)d] %(message)s",  # noqa
-                datefmt="%a, %d %b %Y %H:%M:%S",
-            )
-            sh.setFormatter(formatter)
-            logger.addHandler(sh)
+        logger = logging.getLogger("spice")
+        logger.setLevel(logging.INFO)
+        sh = logging.StreamHandler(sys.stdout)
+        formatter = logging.Formatter(
+            "[%(asctime)s] %(levelname)s [%(filename)s.%(funcName)s:%(lineno)d] %(message)s",  # noqa
+            datefmt="%a, %d %b %Y %H:%M:%S",
+        )
+        sh.setFormatter(formatter)
+        logger.addHandler(sh)
 
         environment = "production"
         if "localhost" in host:
@@ -62,9 +70,63 @@ class Spice:
 
         self.session = create_session(host=self.host, host_config=self.host_config)
 
+        self.worker = Worker(self)
         self.auth = Auth(self)
         self.hardware = Hardware(self)
         self.inference = Inference(self)
         self.training = Training(self)
         self.uploader = Uploader(self)
         self.daemons = Daemons(self)
+
+    def get_device(self):
+        """
+        First check if mps is available as a device
+        Then check for a CUDA device
+        Finally, fall back to CPU
+        """
+        device = None
+        os_family = platform.system()
+
+        # mps device enables high-performance training on GPU for macOS
+        # devices with Metal programming framework
+        # https://pytorch.org/docs/master/notes/mps.html
+        if os_family == "Darwin" and torch.backends.mps.is_available():  # type: ignore
+            device = torch.device("mps")
+            empty_cache()
+            if self.DEBUG:
+                print("Using MPS device.")
+        else:
+            if device is None and self.DEBUG:
+                # in debug mode why is it not available
+                if not torch.backends.mps.is_built():  # type: ignore
+                    print(
+                        "MPS not available because the current PyTorch install was not built with MPS enabled."  # noqa
+                    )
+                else:
+                    print(
+                        "MPS not available because the current macOS version is not 12.3+ and/or you do not have an MPS-enabled device on this machine."  # noqa
+                    )
+
+        if device is None and torch.cuda.is_available():
+            device = torch.device("cuda:0")
+            if self.DEBUG:
+                print("Using CUDA device.")
+        else:
+            if device is None and self.DEBUG:
+                # in debug mode why is it not available
+                if not torch.backends.cuda.is_built():  # type: ignore
+                    print(
+                        "CUDA not available because the current PyTorch install was not built with CUDA enabled."  # noqa
+                    )
+                else:
+                    print(
+                        "CUDA not available because the current you do not have an CUDA-enabled device on this machine."  # noqa
+                    )
+
+        if device is None:
+            # fallback to CPU
+            device = torch.device("cpu")
+            if self.DEBUG:
+                print("Using cpu.")
+
+        return device

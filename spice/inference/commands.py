@@ -40,12 +40,3 @@ def run_command(context, model: str, input: str):
     spice = context.obj.get("SPICE")
     message = spice.inference.run_pipeline(model=model, input=input)
     print_result(message=message, context=context)
-
-
-@cli.command("worker")
-@click.pass_context
-def worker_command(context):
-    """Run as a worker that picks up tasks from the spice.cloud queue."""
-    spice = context.obj.get("SPICE")
-    message = spice.inference.worker()
-    print_result(message=message, context=context)
