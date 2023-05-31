@@ -29,8 +29,6 @@ from spice.utils.config import (
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import torch  # noqa
-from torch.optim import AdamW  # noqa
-from torch.utils.data import DataLoader  # noqa
 import transformers  # noqa
 
 LOGGER = logging.getLogger(__name__)
@@ -64,6 +62,73 @@ ACTIVE_UPLOADING_STEP_STATUSES = [
 MODEL_BUCKET_NAME = "spice-models"
 
 
+class StatusDetailsCallback(transformers.TrainerCallback):
+    """
+    A [`TrainerCallback`] that sends the progress of training or evaluation
+    to the spice backend.
+    """
+
+    def __init__(
+        self,
+        training,
+        status: str,
+        training_round_step_id: Optional[str] = None,
+        training_round_id: Optional[str] = None,
+    ):
+        self.training = training
+        self.status = status
+        self.training_round_step_id = training_round_step_id
+        self.training_round_id = training_round_id
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        if state.is_local_process_zero:
+            if self.training_round_step_id:
+                self.training._update_training_round_step(
+                    training_round_step_id=self.training_round_step_id,
+                    status=self.status,
+                    status_details={"progress": 0},
+                )
+            if self.training_round_id:
+                self.training._update_training_round(
+                    training_round_id=self.training_round_id,
+                    status=self.status,
+                    status_details={"progress": 0},
+                )
+        self.current_step = 0
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.is_local_process_zero:
+            progress = round((state.global_step / state.max_steps) * 100)
+            if self.training_round_step_id:
+                self.training._update_training_round_step(
+                    training_round_step_id=self.training_round_step_id,
+                    status=self.status,
+                    status_details={"progress": progress},
+                )
+            if self.training_round_id:
+                self.training._update_training_round(
+                    training_round_id=self.training_round_id,
+                    status=self.status,
+                    status_details={"progress": progress},
+                )
+            self.current_step = state.global_step
+
+    def on_train_end(self, args, state, control, **kwargs):
+        if state.is_local_process_zero:
+            if self.training_round_step_id:
+                self.training._update_training_round_step(
+                    training_round_step_id=self.training_round_step_id,
+                    status=self.status,
+                    status_details={"progress": 100},
+                )
+            if self.training_round_id:
+                self.training._update_training_round(
+                    training_round_id=self.training_round_id,
+                    status=self.status,
+                    status_details={"progress": 0},
+                )
+
+
 class Training:
     def __init__(self, spice) -> None:
         self.spice = spice
@@ -80,10 +145,11 @@ class Training:
     ):
         mutation = gql(
             """
-            mutation updateTrainingRoundFromHardware($trainingRoundId: String!, $status: String!) {
-                updateTrainingRoundFromHardware(trainingRoundId: $trainingRoundId, status: $status) {
+            mutation updateTrainingRoundFromHardware($trainingRoundId: String!, $status: String!, $statusDetails: JSON) {
+                updateTrainingRoundFromHardware(trainingRoundId: $trainingRoundId, status: $status, statusDetails: $statusDetails) {
                     id
                     status
+                    statusDetails
                     roundNumber
                     trainingJob {
                         id
@@ -117,8 +183,8 @@ class Training:
     ):
         mutation = gql(
             """
-            mutation updateTrainingRoundStepFromHardware($trainingRoundStepId: String!, $status: String!, $fileId: String) {
-                updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status, fileId: $fileId) {
+            mutation updateTrainingRoundStepFromHardware($trainingRoundStepId: String!, $status: String!, $fileId: String, $statusDetails: JSON) {
+                updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status, fileId: $fileId, statusDetails: $statusDetails) {
                     id
                     status
                     baseModel
@@ -136,6 +202,7 @@ class Training:
                             id
                         }
                     }
+                    statusDetails
                 }
             }
         """  # noqa
@@ -171,43 +238,6 @@ class Training:
         }
 
         return self.spice.session.execute(query, variable_values=variables)
-
-    def _claim_message_callback(self, channel, method, properties, body):
-        """
-        Based on if we get a training_round_step_id or training_round_id from the
-        message consume
-        """
-        print(" [*] Processing message.")
-        data = json.loads(body.decode("utf-8"))
-
-        training_round_step_id = data.get("training_round_step_id", None)
-        training_round_id = data.get("training_round_id", None)
-
-        if not training_round_step_id and not training_round_id:
-            raise Exception(
-                f'No training_round_step_id or training_round_id found in message body: {body.decode("utf-8")}'  # noqa
-            )
-
-        if training_round_id:
-            self._update_training_round(
-                training_round_id=training_round_id, status="CLAIMED"
-            )
-            print(" [*] Obtained training round.")
-        if training_round_step_id:
-            self._update_training_round_step(
-                training_round_step_id=training_round_step_id, status="CLAIMED"
-            )
-            print(" [*] Obtained training round step.")
-
-        if channel.is_open:
-            channel.basic_ack(delivery_tag=method.delivery_tag)
-        else:
-            print(" [*] Channel closed already. Cannot ack message.")
-
-        print(" [*] Stopping worker...")
-        if self.channel:
-            self.channel.stop_consuming()
-            self.channel.close()
 
     def upload_models(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
@@ -245,11 +275,6 @@ class Training:
                     file_checksum=file_checksum,
                     location=f"s3://{bucket_key}",
                 )
-                # self._update_training_round_step(
-                #     training_round_step_id=training_round_step_id,
-                #     status="REQUEST_UPLOAD",
-                #     file_id=file_id,
-                # )
                 self.spice.uploader.upload_file(
                     bucket_name=MODEL_BUCKET_NAME,
                     key=bucket_key,
@@ -342,11 +367,18 @@ class Training:
             predictions = np.argmax(logits, axis=-1)
             return metric.compute(predictions=predictions, references=labels)
 
+        status_details_callback = StatusDetailsCallback(
+            training=self,
+            status="TRAINING",
+            training_round_step_id=training_round_step_id,
+        )
+
         trainer = Trainer(
             model=model,
             args=training_args,
             train_dataset=tokenized_datasets,
             compute_metrics=compute_metrics,
+            callbacks=[status_details_callback],
         )
 
         self._update_training_round_step(
@@ -389,7 +421,7 @@ class Training:
         )
 
         # get dataset
-        print("Loading dataset...")
+        print("Loading test dataset...")
         self._update_training_round_step(
             training_round_step_id=training_round_step_id,
             status="DOWNLOADING_TESTING_DATASET",
@@ -447,11 +479,18 @@ class Training:
             predictions = np.argmax(logits, axis=-1)
             return metric.compute(predictions=predictions, references=labels)
 
+        status_details_callback = StatusDetailsCallback(
+            training=self,
+            training_round_step_id=training_round_step_id,
+            status="TESTING",
+        )
+
         trainer = Trainer(
             model=model,
             args=eval_args,
             eval_dataset=tokenized_test_datasets,
             compute_metrics=compute_metrics,
+            callbacks=[status_details_callback],
         )
 
         self._update_training_round_step(
@@ -606,11 +645,18 @@ class Training:
             predictions = np.argmax(logits, axis=-1)
             return metric.compute(predictions=predictions, references=labels)
 
+        status_details_callback = StatusDetailsCallback(
+            training=self,
+            training_round_id=training_round_id,
+            status="VERIFYING",
+        )
+
         trainer = Trainer(
             model=model,
             args=eval_args,
             eval_dataset=tokenized_test_datasets,
             compute_metrics=compute_metrics,
+            callbacks=[status_details_callback],
         )
 
         self._update_training_round(
