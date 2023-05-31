@@ -168,43 +168,6 @@ class Training:
 
         return self.spice.session.execute(query, variable_values=variables)
 
-    def _claim_message_callback(self, channel, method, properties, body):
-        """
-        Based on if we get a training_round_step_id or training_round_id from the
-        message consume
-        """
-        print(" [*] Processing message.")
-        data = json.loads(body.decode("utf-8"))
-
-        training_round_step_id = data.get("training_round_step_id", None)
-        training_round_id = data.get("training_round_id", None)
-
-        if not training_round_step_id and not training_round_id:
-            raise Exception(
-                f'No training_round_step_id or training_round_id found in message body: {body.decode("utf-8")}'  # noqa
-            )
-
-        if training_round_id:
-            self._update_training_round(
-                training_round_id=training_round_id, status="CLAIMED"
-            )
-            print(" [*] Obtained training round.")
-        if training_round_step_id:
-            self._update_training_round_step(
-                training_round_step_id=training_round_step_id, status="CLAIMED"
-            )
-            print(" [*] Obtained training round step.")
-
-        if channel.is_open:
-            channel.basic_ack(delivery_tag=method.delivery_tag)
-        else:
-            print(" [*] Channel closed already. Cannot ack message.")
-
-        print(" [*] Stopping worker...")
-        if self.channel:
-            self.channel.stop_consuming()
-            self.channel.close()
-
     def upload_models(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
