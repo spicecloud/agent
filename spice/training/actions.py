@@ -145,10 +145,11 @@ class Training:
     ):
         mutation = gql(
             """
-            mutation updateTrainingRoundFromHardware($trainingRoundId: String!, $status: String!) {
-                updateTrainingRoundFromHardware(trainingRoundId: $trainingRoundId, status: $status) {
+            mutation updateTrainingRoundFromHardware($trainingRoundId: String!, $status: String!, $statusDetails: JSON) {
+                updateTrainingRoundFromHardware(trainingRoundId: $trainingRoundId, status: $status, statusDetails: $statusDetails) {
                     id
                     status
+                    statusDetails
                     roundNumber
                     trainingJob {
                         id
