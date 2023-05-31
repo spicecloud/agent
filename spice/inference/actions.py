@@ -1,13 +1,8 @@
 import json
 import logging
 import os
-import platform
-import ssl
-import sys
 
 from gql import gql
-import pika
-from retry import retry
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 

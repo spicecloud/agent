@@ -1,6 +1,5 @@
 import click
 
-from ..utils.printer import print_result
 
 
 @click.group()

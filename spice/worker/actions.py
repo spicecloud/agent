@@ -1,14 +1,12 @@
 import json
 import logging
 import os
-import platform
 import ssl
 import sys
 
 import pika
 from pika.exceptions import AMQPConnectionError, ConnectionClosedByBroker
 from retry import retry
-from torch.mps import empty_cache
 
 from spice.utils.config import (
     SPICE_ROUND_VERIFICATION_FILEPATH,
