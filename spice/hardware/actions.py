@@ -136,7 +136,8 @@ class Hardware:
         update_config_file(new_config=self.spice.full_config)
 
         # then check in that the hardware, validate that it is saved correctly
-        # and headers are propagated
+        # and headers are
+        self.spice.create_session()
         self.check_in_http(is_healthy=True)
         return result
 

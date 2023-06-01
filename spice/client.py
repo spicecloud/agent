@@ -60,15 +60,7 @@ class Spice:
             release=f"spice@{__version__}",
         )
 
-        self.full_config = read_config_file()
-        self.host_config = self.full_config.get(self.host)
-
-        if not self.host_config:
-            raise KeyError(f"Host {self.host} not found in config file.")
-        else:
-            set_user({"username": self.host_config["username"]})
-
-        self.session = create_session(host=self.host, host_config=self.host_config)
+        self.create_session()
 
         self.worker = Worker(self)
         self.auth = Auth(self)
@@ -130,3 +122,14 @@ class Spice:
                 print("Using cpu.")
 
         return device
+
+    def create_session(self):
+        self.full_config = read_config_file()
+        self.host_config = self.full_config.get(self.host)
+
+        if not self.host_config:
+            raise KeyError(f"Host {self.host} not found in config file.")
+        else:
+            set_user({"username": self.host_config["username"]})
+
+        self.session = create_session(host=self.host, host_config=self.host_config)
