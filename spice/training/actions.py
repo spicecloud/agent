@@ -529,12 +529,13 @@ class Training:
     def verify_model(self):
         config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
         training_round_id = config["id"]
-        training_round_number = config["roundNumber"]
         self._update_training_round(
             training_round_id=training_round_id, status="CLAIMED"
         )
         config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
 
+        training_round_number = config["roundNumber"]
+        training_job_id = config["trainingJob"]["id"]
         base_model = config["trainingJob"]["baseModel"]
         base_model_revision = config["trainingJob"]["baseModelRevision"]
         dataset_repo_id = config["trainingJob"]["baseDatasetRepoId"]
@@ -543,9 +544,7 @@ class Training:
 
         # create the folder for the verification round
         # where the step model will be saved
-        verification_round_directory = (
-            f"{training_round_id}/{training_round_number}_verification"
-        )
+        verification_round_directory = f"{training_round_id}/verification"
         verification_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
             verification_round_directory
         )
@@ -667,6 +666,29 @@ class Training:
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics, combined=False)
+
+        # Upload evaluation results
+        bucket_dir = f"{training_job_id}/rounds/{training_round_number}/merged/"
+        for file in verification_cache_for_training_round.iterdir():
+            if file.is_file():
+                bucket_key = bucket_dir + file.name
+
+                # create the "file" and attach it to the training round step
+                file_checksum = hashlib.md5(file.read_bytes()).hexdigest()
+                file_id = self.spice.uploader._create_file(
+                    file_name=file.name,
+                    file_size=file.stat().st_size,
+                    file_checksum=file_checksum,
+                    location=f"s3://{bucket_key}",
+                )
+
+                self.spice.uploader.upload_file(
+                    bucket_name=MODEL_BUCKET_NAME,
+                    key=bucket_key,
+                    filepath=file,
+                    file_id=file_id,
+                )
+
         print("Complete!")
 
         self._update_training_round(
