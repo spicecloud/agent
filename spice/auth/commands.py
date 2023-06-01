@@ -4,7 +4,7 @@ import webbrowser
 import click
 
 from spice.auth.actions import Auth
-from spice.daemons.actions import Daemons
+from spice.client import Spice
 
 from ..utils.config import SPICE_HOSTS_FILEPATH
 from ..utils.printer import print_result
@@ -72,7 +72,20 @@ def config_command(context, username: str, transport: str):
     message = f"Config created at '{SPICE_HOSTS_FILEPATH}' for user '{username}' on host '{host}'"  # noqa
     print_result(message=message, context=context, fg="green")
 
+    if click.confirm("Do you want to register this machine with spice.cloud?"):
+        spice = Spice(host=host)
+        result = spice.hardware.register()
+
+        if result.get("registerHardware"):
+            print_result(
+                message="Hardware registered successfully", context=context, fg="green"
+            )
+
     if click.confirm("Do you want to install the agent as a background process?"):
-        daemons = Daemons(spice=None)
-        daemons.install()
-        click.echo("Daemon installed. View its logs with `spice daemon logs`")
+        spice = Spice(host=host)
+        spice.daemons.install()
+        print_result(
+            message="Daemon installed. View its logs with `spice daemon logs`",
+            context=context,
+            fg="green",
+        )
