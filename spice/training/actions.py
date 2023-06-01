@@ -2,7 +2,7 @@ import hashlib
 import json
 import logging
 import os
-from typing import Optional
+from typing import Dict, Optional
 
 from datasets import load_dataset
 import evaluate
@@ -141,12 +141,17 @@ class Training:
             logging.getLogger("pika").setLevel(logging.ERROR)
 
     def _update_training_round(
-        self, training_round_id: str, status: str, status_details: Optional[dict] = None
+        self,
+        training_round_id: str,
+        status: str,
+        status_details: Optional[dict] = None,
+        round_accuracy: Optional[float] = None,
+        round_loss: Optional[float] = None,
     ):
         mutation = gql(
             """
-            mutation updateTrainingRoundFromHardware($trainingRoundId: String!, $status: String!, $statusDetails: JSON) {
-                updateTrainingRoundFromHardware(trainingRoundId: $trainingRoundId, status: $status, statusDetails: $statusDetails) {
+            mutation updateTrainingRoundFromHardware($trainingRoundId: String!, $status: String!, $statusDetails: JSON, $roundAccuracy: Float, $roundLoss: Float) {
+                updateTrainingRoundFromHardware(trainingRoundId: $trainingRoundId, status: $status, statusDetails: $statusDetails, roundAccuracy: $roundAccuracy, roundLoss: $roundLoss) {
                     id
                     status
                     statusDetails
@@ -162,11 +167,16 @@ class Training:
             }
             """  # noqa
         )
-        variables = {"trainingRoundId": training_round_id}
+        variables: Dict[str, str | float] = {"trainingRoundId": training_round_id}
         if status is not None:
             variables["status"] = status
         if status_details:
             variables["statusDetails"] = json.dumps(status_details)
+        if round_accuracy is not None:
+            variables["roundAccuracy"] = round_accuracy
+        if round_loss is not None:
+            variables["roundLoss"] = round_loss
+
         result = self.spice.session.execute(mutation, variable_values=variables)
         update_config_file(
             filepath=SPICE_ROUND_VERIFICATION_FILEPATH,
@@ -180,11 +190,13 @@ class Training:
         status: str,
         status_details: Optional[dict] = None,
         file_id: Optional[str] = None,
+        step_accuracy: Optional[float] = None,
+        step_loss: Optional[float] = None,
     ):
         mutation = gql(
             """
-            mutation updateTrainingRoundStepFromHardware($trainingRoundStepId: String!, $status: String!, $fileId: String, $statusDetails: JSON) {
-                updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status, fileId: $fileId, statusDetails: $statusDetails) {
+            mutation updateTrainingRoundStepFromHardware($trainingRoundStepId: String!, $status: String!, $fileId: String, $statusDetails: JSON, $stepAccuracy: Float, $stepLoss: Float) {
+                updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status, fileId: $fileId, statusDetails: $statusDetails, stepAccuracy: $stepAccuracy, stepLoss: $stepLoss) {
                     id
                     status
                     baseModel
@@ -207,14 +219,22 @@ class Training:
             }
         """  # noqa
         )
-        variables = {"trainingRoundStepId": training_round_step_id}
+        variables: Dict[str, str | float] = {
+            "trainingRoundStepId": training_round_step_id
+        }
         if status is not None:
             variables["status"] = status
         if status_details:
             variables["statusDetails"] = json.dumps(status_details)
         if file_id is not None:
             variables["fileId"] = file_id
+        if step_accuracy is not None:
+            variables["stepAccuracy"] = step_accuracy
+        if step_loss is not None:
+            variables["stepLoss"] = step_loss
+
         result = self.spice.session.execute(mutation, variable_values=variables)
+
         update_config_file(
             filepath=SPICE_TRAINING_FILEPATH,
             new_config=result["updateTrainingRoundStepFromHardware"],
@@ -504,7 +524,10 @@ class Training:
         trainer.save_metrics("eval", metrics, combined=False)
 
         self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="TESTING_COMPLETE"
+            training_round_step_id=training_round_step_id,
+            status="TESTING_COMPLETE",
+            step_accuracy=metrics["eval_accuracy"],
+            step_loss=metrics["eval_loss"],
         )
 
         # clear the cache
@@ -694,6 +717,8 @@ class Training:
         self._update_training_round(
             training_round_id=training_round_id,
             status="VERIFYING_COMPLETE",
+            round_accuracy=metrics["eval_accuracy"],
+            round_loss=metrics["eval_loss"],
         )
 
         # clear the cache
