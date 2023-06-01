@@ -671,7 +671,7 @@ class Training:
 
         self._update_training_round(
             training_round_id=training_round_id,
-            status="VERIFY_COMPLETE",
+            status="VERIFYING_COMPLETE",
         )
 
         # clear the cache
