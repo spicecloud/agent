@@ -7,6 +7,7 @@ from typing import Dict, Optional
 from datasets import load_dataset
 import evaluate
 from gql import gql
+from gql.transport.exceptions import TransportQueryError
 import numpy as np
 import requests
 import torch  # noqa
@@ -177,7 +178,17 @@ class Training:
         if round_loss is not None:
             variables["roundLoss"] = round_loss
 
-        result = self.spice.session.execute(mutation, variable_values=variables)
+        try:
+            result = self.spice.session.execute(mutation, variable_values=variables)
+        except TransportQueryError as exception:
+            if exception.errors:
+                for error in exception.errors:
+                    if error.get("message", None) == "Round not found.":
+                        LOGGER.error("Round not found.")
+                        return None
+            else:
+                raise exception
+
         update_config_file(
             filepath=SPICE_ROUND_VERIFICATION_FILEPATH,
             new_config=result["updateTrainingRoundFromHardware"],
@@ -233,7 +244,16 @@ class Training:
         if step_loss is not None:
             variables["stepLoss"] = step_loss
 
-        result = self.spice.session.execute(mutation, variable_values=variables)
+        try:
+            result = self.spice.session.execute(mutation, variable_values=variables)
+        except TransportQueryError as exception:
+            if exception.errors:
+                for error in exception.errors:
+                    if error.get("message", None) == "Round step not found.":
+                        LOGGER.error("Round step not found.")
+                        return None
+            else:
+                raise exception
 
         update_config_file(
             filepath=SPICE_TRAINING_FILEPATH,

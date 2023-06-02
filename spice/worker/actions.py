@@ -93,16 +93,18 @@ class Worker:
             )
 
         if training_round_id:
-            self.spice.training._update_training_round(
+            result = self.spice.training._update_training_round(
                 training_round_id=training_round_id, status="CLAIMED"
             )
-            LOGGER.info(" [*] Obtained training round.")
+            if result is not None:
+                LOGGER.info(" [*] Obtained training round.")
 
         if training_round_step_id:
-            self.spice.training._update_training_round_step(
+            result = self.spice.training._update_training_round_step(
                 training_round_step_id=training_round_step_id, status="CLAIMED"
             )
-            LOGGER.info(" [*] Obtained training round step.")
+            if result is not None:
+                LOGGER.info(" [*] Obtained training round step.")
 
         if channel.is_open:
             channel.basic_ack(delivery_tag=method.delivery_tag)
