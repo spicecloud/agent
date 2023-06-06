@@ -334,10 +334,10 @@ class Training:
         )
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
 
-        base_model = config["baseModel"]
-        base_model_revision = config["baseModelRevision"]
-        dataset_repo_id = config["baseDatasetRepoId"]
-        dataset_repo_revision = config["baseDatasetRepoRevision"]
+        hf_model_repo_id = config["hfModelRepoId"]
+        hf_model_repo_revision = config["hfModelRepoRevision"]
+        hf_dataset_repo_id = config["hfDatasetRepoId"]
+        hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
         dataset_starting_row = config["datasetStartingRow"]
         dataset_ending_row = config["datasetEndingRow"]
         config["trainingEpochs"]
@@ -360,13 +360,16 @@ class Training:
 
         split_string = f"train[{dataset_starting_row}:{dataset_ending_row}]"
         train_dataset = load_dataset(
-            path=dataset_repo_id, revision=dataset_repo_revision, split=split_string
+            path=hf_dataset_repo_id,
+            revision=hf_dataset_repo_revision,
+            split=split_string,
         )
 
         # get tokenizer from base model bert-base-cased
         print("Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=base_model, revision=base_model_revision
+            pretrained_model_name_or_path=hf_model_repo_id,
+            revision=hf_model_repo_revision,
         )
 
         # create a tokenize function that will tokenize the dataset
@@ -389,7 +392,7 @@ class Training:
         # Load your model with the number of expected labels:
         print("Loading base model...")
         model = AutoModelForSequenceClassification.from_pretrained(
-            base_model, num_labels=5
+            hf_model_repo_id, num_labels=5
         )
 
         training_args = TrainingArguments(
@@ -444,12 +447,10 @@ class Training:
         )
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
 
-        base_model = config["baseModel"]
-        base_model_revision = config["baseModelRevision"]
-        dataset_repo_id = config["baseDatasetRepoId"]
-        dataset_repo_revision = config["baseDatasetRepoRevision"]
-        config["datasetStartingRow"]
-        config["datasetEndingRow"]
+        hf_model_repo_id = config["hfModelRepoId"]
+        hf_model_repo_revision = config["hfModelRepoRevision"]
+        hf_dataset_repo_id = config["hfDatasetRepoId"]
+        hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
@@ -468,13 +469,14 @@ class Training:
         )
 
         test_dataset = load_dataset(
-            path=dataset_repo_id, revision=dataset_repo_revision, split="test"
+            path=hf_dataset_repo_id, revision=hf_dataset_repo_revision, split="test"
         )
 
         # get tokenizer from base model bert-base-cased
         print("Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=base_model, revision=base_model_revision
+            pretrained_model_name_or_path=hf_model_repo_id,
+            revision=hf_model_repo_revision,
         )
 
         # create a tokenize function that will tokenize the dataset
@@ -501,7 +503,7 @@ class Training:
         # Load your model with the number of expected labels:
         print("Loading base model...")
         model = AutoModelForSequenceClassification.from_pretrained(
-            base_model, num_labels=5
+            hf_model_repo_id, num_labels=5
         )
 
         eval_args = TrainingArguments(
@@ -579,8 +581,9 @@ class Training:
 
         training_round_number = config["roundNumber"]
         training_job_id = config["trainingJob"]["id"]
-        base_model = config["trainingJob"]["baseModel"]
-        base_model_revision = config["trainingJob"]["baseModelRevision"]
+        hf_model_repo_id = config["trainingJob"]["hfModelRepoId"]
+        base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
+        base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
         dataset_repo_id = config["trainingJob"]["baseDatasetRepoId"]
         dataset_repo_revision = config["trainingJob"]["baseDatasetRepoRevision"]
         verification_batch_size = 32
@@ -641,7 +644,10 @@ class Training:
         # get tokenizer from base model bert-base-cased
         print("Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=base_model, revision=base_model_revision
+            pretrained_model_name_or_path=hf_model_repo_id
+            if hf_model_repo_id
+            else base_model_repo_id,
+            revision="main" if hf_model_repo_id else base_model_repo_revision,
         )
 
         # create a tokenize function that will tokenize the dataset
