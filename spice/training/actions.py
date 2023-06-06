@@ -4,6 +4,7 @@ import logging
 import os
 from typing import Dict, Optional
 
+from aiohttp import client_exceptions
 from datasets import load_dataset
 import evaluate
 from gql import gql
@@ -33,31 +34,6 @@ import torch  # noqa
 import transformers  # noqa
 
 LOGGER = logging.getLogger(__name__)
-
-ACTIVE_VERIFY_ROUND_STATUSES = {
-    "CLAIMED",
-    "DOWNLOADING_ROUND_MODEL",
-    "DOWNLOADING_VERIFICATION_DATASET",
-    "VERIFYING",
-}
-
-ACTIVE_TRAINING_ROUND_STEP_STATUSES = [
-    "CLAIMED",
-    "DOWNLOADING_MODEL",
-    "DOWNLOADING_DATASET",
-    "TRAINING",
-    "UPLOADING_STEP_MODEL",
-]
-ACTIVE_TESTING_STEP_STATUSES = [
-    "TRAINING_COMPLETE",
-    "DOWNLOADING_TESTING_DATASET",
-    "TESTING",
-]
-ACTIVE_UPLOADING_STEP_STATUSES = [
-    "TESTING_COMPLETE",
-    "REQUEST_UPLOAD",
-    "UPLOADING",
-]
 
 
 MODEL_BUCKET_NAME = "spice-models"
@@ -255,6 +231,10 @@ class Training:
                         return None
             else:
                 raise exception
+        except client_exceptions.ClientOSError as exception:
+            # the backend can be down or deploying this step, do not break the app
+            if status in self.spice.worker.ACTIVE_STATUSES:
+                return None
 
         update_config_file(
             filepath=SPICE_TRAINING_FILEPATH,
@@ -330,10 +310,12 @@ class Training:
     def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="CLAIMED"
-        )
-        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+
+        if config.get("status") == "READY_FOR_PICKUP":
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id, status="CLAIMED"
+            )
+            config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
 
         hf_model_repo_id = config["hfModelRepoId"]
         hf_model_repo_revision = config["hfModelRepoRevision"]
@@ -341,7 +323,6 @@ class Training:
         hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
         dataset_starting_row = config["datasetStartingRow"]
         dataset_ending_row = config["datasetEndingRow"]
-        config["trainingEpochs"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
@@ -443,10 +424,12 @@ class Training:
     def test_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="CLAIMED"
-        )
-        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+
+        if config.get("status") == "READY_FOR_PICKUP":
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id, status="CLAIMED"
+            )
+            config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
 
         hf_model_repo_id = config["hfModelRepoId"]
         hf_model_repo_revision = config["hfModelRepoRevision"]
@@ -575,10 +558,12 @@ class Training:
     def verify_model(self):
         config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
         training_round_id = config["id"]
-        self._update_training_round(
-            training_round_id=training_round_id, status="CLAIMED"
-        )
-        config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
+
+        if config.get("status") == "READY_FOR_PICKUP":
+            self._update_training_round(
+                training_round_id=training_round_id, status="CLAIMED"
+            )
+            config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
 
         training_round_number = config["roundNumber"]
         training_job_id = config["trainingJob"]["id"]
