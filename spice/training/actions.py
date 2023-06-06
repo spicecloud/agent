@@ -231,7 +231,7 @@ class Training:
                         return None
             else:
                 raise exception
-        except client_exceptions.ClientOSError as exception:
+        except client_exceptions.ClientOSError:
             # the backend can be down or deploying this step, do not break the app
             if status in self.spice.worker.ACTIVE_STATUSES:
                 return None
