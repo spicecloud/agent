@@ -159,10 +159,11 @@ class Training:
                     roundNumber
                     trainingJob {
                         id
-                        baseModel
-                        baseModelRevision
+                        baseModelRepoId
+                        baseModelRepoRevision
                         baseDatasetRepoId
                         baseDatasetRepoRevision
+                        hfModelRepoId
                     }
                 }
             }
@@ -210,10 +211,10 @@ class Training:
                 updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status, fileId: $fileId, statusDetails: $statusDetails, stepAccuracy: $stepAccuracy, stepLoss: $stepLoss) {
                     id
                     status
-                    baseModel
-                    baseModelRevision
-                    baseDatasetRepoId
-                    baseDatasetRepoRevision
+                    hfModelRepoId
+                    hfModelRepoRevision
+                    hfDatasetRepoId
+                    hfDatasetRepoRevision
                     datasetStartingRow
                     datasetEndingRow
                     trainingEpochs
