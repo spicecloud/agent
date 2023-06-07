@@ -288,8 +288,10 @@ class Training:
         )
 
         # Copies current training_round_model_repo config files (e.g. tokenizer, vocab)
-        # into model cache for upload to s3 and hf 
-        def copy_hf_to_cache(src_dir, dst_dir, ignore_files=["config.json", "pytorch_model.bin"]): # noqa
+        # into model cache for upload to s3 and hf
+        def copy_hf_to_cache(
+            src_dir, dst_dir, ignore_files=["config.json", "pytorch_model.bin"]
+        ):  # noqa
             for file in os.listdir(src_dir):
                 if file in ignore_files:
                     continue
@@ -299,12 +301,19 @@ class Training:
                 shutil.copy2(src_path, dst_path)
 
         # hf_model_directory could refer to different snapshots of the model
-        snapshot_directory = f"models--{training_round_model_repo}/snapshots" 
+        training_round_model_repo_formatted = training_round_model_repo.replace(
+            "/", "--"
+        )
+        snapshot_directory = f"models--{training_round_model_repo_formatted}/snapshots"
         hf_model_directory = HF_HUB_DIRECTORY.joinpath(snapshot_directory)
-        recent_snapshot_directory = max(hf_model_directory.iterdir(), key=lambda d: d.stat().st_mtime) # noqa
-        recent_hf_model_directory = hf_model_directory.joinpath(recent_snapshot_directory) # noqa
+        recent_snapshot_directory = max(
+            hf_model_directory.iterdir(), key=lambda d: d.stat().st_mtime
+        )
+        recent_hf_model_directory = hf_model_directory.joinpath(
+            recent_snapshot_directory
+        )
         copy_hf_to_cache(recent_hf_model_directory, model_cache_for_training_round)
-             
+
         for file in model_cache_for_training_round.iterdir():
             if file.is_file():
                 bucket_key = bucket_dir + file.name
@@ -376,8 +385,15 @@ class Training:
         )
 
         # create a tokenize function that will tokenize the dataset
+        # bert-base-uncased uses a subword tokenizer so the maximum length corresponds
+        # to 512 subword tokens
         def tokenize_function(examples):
-            return tokenizer(examples["text"], padding="max_length", truncation=True)
+            return tokenizer(
+                examples["text"],
+                padding="max_length",
+                truncation=True,
+                max_length=512,
+            )
 
         print("Tokenizing dataset...")
         tokenized_datasets = train_dataset.map(tokenize_function, batched=True)
@@ -431,7 +447,6 @@ class Training:
             training_round_step_id=training_round_step_id, status="TRAINING"
         )
 
-        # TODO: Verify why there is a torch stack size mismatch???
         trainer.train()
 
         trainer.save_model(output_dir=str(model_cache_for_training_round))
@@ -487,7 +502,9 @@ class Training:
 
         # create a tokenize function that will tokenize the dataset
         def tokenize_function(examples):
-            return tokenizer(examples["text"], padding="max_length", truncation=True)
+            return tokenizer(
+                examples["text"], padding="max_length", truncation=True, max_length=512
+            )
 
         print("Tokenizing dataset...")
         tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
@@ -662,7 +679,9 @@ class Training:
 
         # create a tokenize function that will tokenize the dataset
         def tokenize_function(examples):
-            return tokenizer(examples["text"], padding="max_length", truncation=True)
+            return tokenizer(
+                examples["text"], padding="max_length", truncation=True, max_length=512
+            )
 
         print("Tokenizing dataset...")
         tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
