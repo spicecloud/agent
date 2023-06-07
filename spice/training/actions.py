@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 from typing import Dict, Optional
 
 from aiohttp import client_exceptions
@@ -23,6 +24,7 @@ from spice.utils.config import (
     SPICE_MODEL_CACHE_FILEPATH,
     SPICE_ROUND_VERIFICATION_FILEPATH,
     SPICE_TRAINING_FILEPATH,
+    HF_HUB_DIRECTORY,
     create_directory,
     read_config_file,
     update_config_file,
@@ -263,6 +265,7 @@ class Training:
     def upload_models(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
+        training_round_model_repo = config["hfModelRepoId"]
         training_round_id = config["trainingRound"]["id"]
         training_round_number = config["trainingRound"]["roundNumber"]
         training_job_id = config["trainingRound"]["trainingJob"]["id"]
@@ -284,6 +287,24 @@ class Training:
             status="UPLOADING",
         )
 
+        # Copies current training_round_model_repo config files (e.g. tokenizer, vocab)
+        # into model cache for upload to s3 and hf 
+        def copy_hf_to_cache(src_dir, dst_dir, ignore_files=["config.json", "pytorch_model.bin"]): # noqa
+            for file in os.listdir(src_dir):
+                if file in ignore_files:
+                    continue
+
+                src_path = f"{src_dir}/{file}"
+                dst_path = f"{dst_dir}/{file}"
+                shutil.copy2(src_path, dst_path)
+
+        # hf_model_directory could refer to different snapshots of the model
+        snapshot_directory = f"models--{training_round_model_repo}/snapshots" 
+        hf_model_directory = HF_HUB_DIRECTORY.joinpath(snapshot_directory)
+        recent_snapshot_directory = max(hf_model_directory.iterdir(), key=lambda d: d.stat().st_mtime) # noqa
+        recent_hf_model_directory = hf_model_directory.joinpath(recent_snapshot_directory) # noqa
+        copy_hf_to_cache(recent_hf_model_directory, model_cache_for_training_round)
+             
         for file in model_cache_for_training_round.iterdir():
             if file.is_file():
                 bucket_key = bucket_dir + file.name
@@ -410,6 +431,7 @@ class Training:
             training_round_step_id=training_round_step_id, status="TRAINING"
         )
 
+        # TODO: Verify why there is a torch stack size mismatch???
         trainer.train()
 
         trainer.save_model(output_dir=str(model_cache_for_training_round))

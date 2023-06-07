@@ -9,6 +9,7 @@ SPICE_ROUND_VERIFICATION_FILEPATH = Path(
     HOME_DIRECTORY / ".config" / "spice" / "training-verification.json"
 )
 SPICE_MODEL_CACHE_FILEPATH = Path(HOME_DIRECTORY / ".cache" / "spice" / "models")
+HF_HUB_DIRECTORY = Path(HOME_DIRECTORY / ".cache" / "huggingface" / "hub")
 
 
 def create_directory(filepath: Path = SPICE_MODEL_CACHE_FILEPATH):
