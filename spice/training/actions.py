@@ -631,9 +631,11 @@ class Training:
         print("Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path=hf_model_repo_id
-            if hf_model_repo_id
+            if hf_model_repo_id and training_round_number > 1
             else base_model_repo_id,
-            revision="main" if hf_model_repo_id else base_model_repo_revision,
+            revision="main"
+            if hf_model_repo_id and training_round_number > 1
+            else base_model_repo_revision,
         )
 
         # create a tokenize function that will tokenize the dataset
