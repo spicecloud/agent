@@ -1,3 +1,5 @@
+import os
+import shutil
 import json
 from pathlib import Path
 from typing import Dict
@@ -9,6 +11,7 @@ SPICE_ROUND_VERIFICATION_FILEPATH = Path(
     HOME_DIRECTORY / ".config" / "spice" / "training-verification.json"
 )
 SPICE_MODEL_CACHE_FILEPATH = Path(HOME_DIRECTORY / ".cache" / "spice" / "models")
+HF_HUB_DIRECTORY = Path(HOME_DIRECTORY / ".cache" / "huggingface" / "hub")
 
 
 def create_directory(filepath: Path = SPICE_MODEL_CACHE_FILEPATH):
@@ -33,3 +36,17 @@ def read_config_file(filepath: Path = SPICE_HOSTS_FILEPATH) -> Dict:
     if not filepath.exists():
         create_config_file(filepath=filepath)
     return json.loads(filepath.read_text())
+
+
+def copy_directory(src_dir, dst_dir, ignore_files=["config.json", "pytorch_model.bin"]):
+    """
+    Copies current training_round_model_repo config files (e.g. tokenizer, vocab)
+    into model cache for upload to s3 and hf
+    """
+    for file in os.listdir(src_dir):
+        if file in ignore_files:
+            continue
+
+        src_path = Path(src_dir / file)
+        dst_path = Path(dst_dir / file)
+        shutil.copy2(src_path, dst_path)

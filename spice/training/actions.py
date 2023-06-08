@@ -4,6 +4,7 @@ import logging
 import os
 from typing import Dict, Optional
 
+from aiohttp import client_exceptions
 from datasets import load_dataset
 import evaluate
 from gql import gql
@@ -22,9 +23,11 @@ from spice.utils.config import (
     SPICE_MODEL_CACHE_FILEPATH,
     SPICE_ROUND_VERIFICATION_FILEPATH,
     SPICE_TRAINING_FILEPATH,
+    HF_HUB_DIRECTORY,
     create_directory,
     read_config_file,
     update_config_file,
+    copy_directory,
 )
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -33,31 +36,6 @@ import torch  # noqa
 import transformers  # noqa
 
 LOGGER = logging.getLogger(__name__)
-
-ACTIVE_VERIFY_ROUND_STATUSES = {
-    "CLAIMED",
-    "DOWNLOADING_ROUND_MODEL",
-    "DOWNLOADING_VERIFICATION_DATASET",
-    "VERIFYING",
-}
-
-ACTIVE_TRAINING_ROUND_STEP_STATUSES = [
-    "CLAIMED",
-    "DOWNLOADING_MODEL",
-    "DOWNLOADING_DATASET",
-    "TRAINING",
-    "UPLOADING_STEP_MODEL",
-]
-ACTIVE_TESTING_STEP_STATUSES = [
-    "TRAINING_COMPLETE",
-    "DOWNLOADING_TESTING_DATASET",
-    "TESTING",
-]
-ACTIVE_UPLOADING_STEP_STATUSES = [
-    "TESTING_COMPLETE",
-    "REQUEST_UPLOAD",
-    "UPLOADING",
-]
 
 
 MODEL_BUCKET_NAME = "spice-models"
@@ -159,10 +137,11 @@ class Training:
                     roundNumber
                     trainingJob {
                         id
-                        baseModel
-                        baseModelRevision
+                        baseModelRepoId
+                        baseModelRepoRevision
                         baseDatasetRepoId
                         baseDatasetRepoRevision
+                        hfModelRepoId
                     }
                 }
             }
@@ -210,10 +189,10 @@ class Training:
                 updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status, fileId: $fileId, statusDetails: $statusDetails, stepAccuracy: $stepAccuracy, stepLoss: $stepLoss) {
                     id
                     status
-                    baseModel
-                    baseModelRevision
-                    baseDatasetRepoId
-                    baseDatasetRepoRevision
+                    hfModelRepoId
+                    hfModelRepoRevision
+                    hfDatasetRepoId
+                    hfDatasetRepoRevision
                     datasetStartingRow
                     datasetEndingRow
                     trainingEpochs
@@ -254,6 +233,10 @@ class Training:
                         return None
             else:
                 raise exception
+        except client_exceptions.ClientOSError:
+            # the backend can be down or deploying this step, do not break the app
+            if status in self.spice.worker.ACTIVE_STATUSES:
+                return None
 
         update_config_file(
             filepath=SPICE_TRAINING_FILEPATH,
@@ -282,6 +265,7 @@ class Training:
     def upload_models(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
+        hf_model_repo_id = config["hfModelRepoId"]
         training_round_id = config["trainingRound"]["id"]
         training_round_number = config["trainingRound"]["roundNumber"]
         training_job_id = config["trainingRound"]["trainingJob"]["id"]
@@ -302,6 +286,18 @@ class Training:
             training_round_step_id=training_round_step_id,
             status="UPLOADING",
         )
+
+        # hf_model_directory could refer to different snapshots of the model
+        hf_model_repo_id_formatted = hf_model_repo_id.replace("/", "--")
+        snapshot_directory = f"models--{hf_model_repo_id_formatted}/snapshots"
+        hf_model_directory = HF_HUB_DIRECTORY.joinpath(snapshot_directory)
+        recent_snapshot_directory = max(
+            hf_model_directory.iterdir(), key=lambda d: d.stat().st_mtime
+        )
+        recent_hf_model_directory = hf_model_directory.joinpath(
+            recent_snapshot_directory
+        )
+        copy_directory(recent_hf_model_directory, model_cache_for_training_round)
 
         for file in model_cache_for_training_round.iterdir():
             if file.is_file():
@@ -329,18 +325,19 @@ class Training:
     def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="CLAIMED"
-        )
-        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
 
-        base_model = config["baseModel"]
-        base_model_revision = config["baseModelRevision"]
-        dataset_repo_id = config["baseDatasetRepoId"]
-        dataset_repo_revision = config["baseDatasetRepoRevision"]
+        if config.get("status") == "READY_FOR_PICKUP":
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id, status="CLAIMED"
+            )
+            config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+
+        hf_model_repo_id = config["hfModelRepoId"]
+        hf_model_repo_revision = config["hfModelRepoRevision"]
+        hf_dataset_repo_id = config["hfDatasetRepoId"]
+        hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
         dataset_starting_row = config["datasetStartingRow"]
         dataset_ending_row = config["datasetEndingRow"]
-        config["trainingEpochs"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
@@ -360,18 +357,28 @@ class Training:
 
         split_string = f"train[{dataset_starting_row}:{dataset_ending_row}]"
         train_dataset = load_dataset(
-            path=dataset_repo_id, revision=dataset_repo_revision, split=split_string
+            path=hf_dataset_repo_id,
+            revision=hf_dataset_repo_revision,
+            split=split_string,
         )
 
         # get tokenizer from base model bert-base-cased
         print("Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=base_model, revision=base_model_revision
+            pretrained_model_name_or_path=hf_model_repo_id,
+            revision=hf_model_repo_revision,
         )
 
         # create a tokenize function that will tokenize the dataset
+        # bert-base-uncased uses a subword tokenizer so the maximum length corresponds
+        # to 512 subword tokens
         def tokenize_function(examples):
-            return tokenizer(examples["text"], padding="max_length", truncation=True)
+            return tokenizer(
+                examples["text"],
+                padding="max_length",
+                truncation=True,
+                max_length=512,
+            )
 
         print("Tokenizing dataset...")
         tokenized_datasets = train_dataset.map(tokenize_function, batched=True)
@@ -389,7 +396,7 @@ class Training:
         # Load your model with the number of expected labels:
         print("Loading base model...")
         model = AutoModelForSequenceClassification.from_pretrained(
-            base_model, num_labels=5
+            hf_model_repo_id, num_labels=5
         )
 
         training_args = TrainingArguments(
@@ -439,17 +446,17 @@ class Training:
     def test_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="CLAIMED"
-        )
-        config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
 
-        base_model = config["baseModel"]
-        base_model_revision = config["baseModelRevision"]
-        dataset_repo_id = config["baseDatasetRepoId"]
-        dataset_repo_revision = config["baseDatasetRepoRevision"]
-        config["datasetStartingRow"]
-        config["datasetEndingRow"]
+        if config.get("status") == "READY_FOR_PICKUP":
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id, status="CLAIMED"
+            )
+            config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+
+        hf_model_repo_id = config["hfModelRepoId"]
+        hf_model_repo_revision = config["hfModelRepoRevision"]
+        hf_dataset_repo_id = config["hfDatasetRepoId"]
+        hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
@@ -468,18 +475,21 @@ class Training:
         )
 
         test_dataset = load_dataset(
-            path=dataset_repo_id, revision=dataset_repo_revision, split="test"
+            path=hf_dataset_repo_id, revision=hf_dataset_repo_revision, split="test"
         )
 
         # get tokenizer from base model bert-base-cased
         print("Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=base_model, revision=base_model_revision
+            pretrained_model_name_or_path=hf_model_repo_id,
+            revision=hf_model_repo_revision,
         )
 
         # create a tokenize function that will tokenize the dataset
         def tokenize_function(examples):
-            return tokenizer(examples["text"], padding="max_length", truncation=True)
+            return tokenizer(
+                examples["text"], padding="max_length", truncation=True, max_length=512
+            )
 
         print("Tokenizing dataset...")
         tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
@@ -501,7 +511,7 @@ class Training:
         # Load your model with the number of expected labels:
         print("Loading base model...")
         model = AutoModelForSequenceClassification.from_pretrained(
-            base_model, num_labels=5
+            hf_model_repo_id, num_labels=5
         )
 
         eval_args = TrainingArguments(
@@ -572,15 +582,18 @@ class Training:
     def verify_model(self):
         config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
         training_round_id = config["id"]
-        self._update_training_round(
-            training_round_id=training_round_id, status="CLAIMED"
-        )
-        config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
+
+        if config.get("status") == "READY_FOR_PICKUP":
+            self._update_training_round(
+                training_round_id=training_round_id, status="CLAIMED"
+            )
+            config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
 
         training_round_number = config["roundNumber"]
         training_job_id = config["trainingJob"]["id"]
-        base_model = config["trainingJob"]["baseModel"]
-        base_model_revision = config["trainingJob"]["baseModelRevision"]
+        hf_model_repo_id = config["trainingJob"]["hfModelRepoId"]
+        base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
+        base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
         dataset_repo_id = config["trainingJob"]["baseDatasetRepoId"]
         dataset_repo_revision = config["trainingJob"]["baseDatasetRepoRevision"]
         verification_batch_size = 32
@@ -641,12 +654,19 @@ class Training:
         # get tokenizer from base model bert-base-cased
         print("Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=base_model, revision=base_model_revision
+            pretrained_model_name_or_path=hf_model_repo_id
+            if hf_model_repo_id and training_round_number > 1
+            else base_model_repo_id,
+            revision="main"
+            if hf_model_repo_id and training_round_number > 1
+            else base_model_repo_revision,
         )
 
         # create a tokenize function that will tokenize the dataset
         def tokenize_function(examples):
-            return tokenizer(examples["text"], padding="max_length", truncation=True)
+            return tokenizer(
+                examples["text"], padding="max_length", truncation=True, max_length=512
+            )
 
         print("Tokenizing dataset...")
         tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)

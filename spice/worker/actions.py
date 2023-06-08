@@ -20,13 +20,12 @@ import transformers  # noqa
 
 LOGGER = logging.getLogger(__name__)
 
-ACTIVE_VERIFY_ROUND_STATUSES = {
+ACTIVE_VERIFY_ROUND_STATUSES = [
     "CLAIMED",
     "DOWNLOADING_ROUND_MODEL",
     "DOWNLOADING_VERIFICATION_DATASET",
     "VERIFYING",
-}
-
+]
 ACTIVE_TRAINING_ROUND_STEP_STATUSES = [
     "CLAIMED",
     "DOWNLOADING_MODEL",
@@ -45,6 +44,13 @@ ACTIVE_UPLOADING_STEP_STATUSES = [
     "UPLOADING",
 ]
 
+ACTIVE_STATUSES = (
+    ACTIVE_VERIFY_ROUND_STATUSES
+    + ACTIVE_TRAINING_ROUND_STEP_STATUSES
+    + ACTIVE_TESTING_STEP_STATUSES
+    + ACTIVE_UPLOADING_STEP_STATUSES
+)  # noqa
+
 
 class Worker:
     def __init__(self, spice) -> None:
@@ -52,6 +58,7 @@ class Worker:
         self.channel = None
         self.device = self.spice.get_device()
         self.can_do_validation = "cuda" in self.device.type
+        self.ACTIVE_STATUSES = ACTIVE_STATUSES
 
         # logging.basicConfig(level=logging.INFO)
         if self.spice.DEBUG:

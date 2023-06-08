@@ -5,9 +5,14 @@ import platform
 import subprocess
 from typing import Dict
 
+from aiohttp import client_exceptions
 from gql import gql
 
-from spice.utils.config import update_config_file
+from spice.utils.config import (
+    SPICE_TRAINING_FILEPATH,
+    read_config_file,
+    update_config_file,
+)
 
 
 class Hardware:
@@ -168,5 +173,10 @@ class Hardware:
             "isQuarantined": is_quarantined,
             "isAvailable": is_available,
         }
-        result = self.spice.session.execute(mutation, variable_values=variables)
+        try:
+            result = self.spice.session.execute(mutation, variable_values=variables)
+        except client_exceptions.ClientConnectorError:
+            config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
+            if config.get("status") in self.spice.worker.ACTIVE_STATUSES:
+                return None
         return result
