@@ -81,8 +81,9 @@ class Hardware:
             get_machine_id_command.split(" "),
             stderr=subprocess.DEVNULL,
         ).decode("utf-8")
-
-        return {"linux_machine_id": machine_id}
+        if machine_id:
+            return {"linux_machine_id": machine_id}
+        return {}
 
     def get_system_info(self):
         os_family = platform.system()
