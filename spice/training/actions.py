@@ -20,14 +20,14 @@ from transformers import (  # noqa
 )
 
 from spice.utils.config import (
+    HF_HUB_DIRECTORY,
     SPICE_MODEL_CACHE_FILEPATH,
     SPICE_ROUND_VERIFICATION_FILEPATH,
     SPICE_TRAINING_FILEPATH,
-    HF_HUB_DIRECTORY,
+    copy_directory,
     create_directory,
     read_config_file,
     update_config_file,
-    copy_directory,
 )
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -379,7 +379,7 @@ class Training:
                 examples["text"],
                 padding="max_length",
                 truncation=True,
-                max_length=TOKENIZER_MAX_LENGTH,
+                # max_length=TOKENIZER_MAX_LENGTH,
             )
 
         print("Tokenizing dataset...")
@@ -493,7 +493,7 @@ class Training:
                 examples["text"],
                 padding="max_length",
                 truncation=True,
-                max_length=TOKENIZER_MAX_LENGTH,
+                # max_length=TOKENIZER_MAX_LENGTH,
             )
 
         print("Tokenizing dataset...")
@@ -670,7 +670,10 @@ class Training:
         # create a tokenize function that will tokenize the dataset
         def tokenize_function(examples):
             return tokenizer(
-                examples["text"], padding="max_length", truncation=True, max_length=512
+                examples["text"],
+                padding="max_length",
+                truncation=True,
+                # max_length=TOKENIZER_MAX_LENGTH,
             )
 
         print("Tokenizing dataset...")
