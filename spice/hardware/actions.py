@@ -75,6 +75,15 @@ class Hardware:
             "cpu_max_clock_speed": cpu_info.get("MaxClockSpeed", ""),
         }
 
+    def get_ubuntu_values(self) -> Dict[str, str]:
+        get_machine_id_command = "cat /etc/machine-id"
+        machine_id = subprocess.check_output(
+            get_machine_id_command.split(" "),
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8")
+
+        return {"linux_machine_id": machine_id}
+
     def get_system_info(self):
         os_family = platform.system()
         system_info = {}
@@ -94,6 +103,8 @@ class Hardware:
                     **self.get_windows_computer_service_product_values(),
                     **self.get_windows_cpu_values(),
                 }
+            else:
+                system_info = {**system_info, **self.get_ubuntu_values()}
         elif os_family == "Windows":
             system_info = {
                 **system_info,
