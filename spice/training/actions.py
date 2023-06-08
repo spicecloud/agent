@@ -27,7 +27,7 @@ from spice.utils.config import (
     create_directory,
     read_config_file,
     update_config_file,
-    copy_dir,
+    copy_directory,
 )
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -297,7 +297,7 @@ class Training:
         recent_hf_model_directory = hf_model_directory.joinpath(
             recent_snapshot_directory
         )
-        copy_dir(recent_hf_model_directory, model_cache_for_training_round)
+        copy_directory(recent_hf_model_directory, model_cache_for_training_round)
 
         for file in model_cache_for_training_round.iterdir():
             if file.is_file():

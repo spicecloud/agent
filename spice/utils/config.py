@@ -38,7 +38,7 @@ def read_config_file(filepath: Path = SPICE_HOSTS_FILEPATH) -> Dict:
     return json.loads(filepath.read_text())
 
 
-def copy_dir(src_dir, dst_dir, ignore_files=["config.json", "pytorch_model.bin"]):
+def copy_directory(src_dir, dst_dir, ignore_files=["config.json", "pytorch_model.bin"]):
     """
     Copies current training_round_model_repo config files (e.g. tokenizer, vocab)
     into model cache for upload to s3 and hf
