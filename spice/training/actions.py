@@ -40,6 +40,8 @@ LOGGER = logging.getLogger(__name__)
 
 MODEL_BUCKET_NAME = "spice-models"
 
+TOKENIZER_MAX_LENGTH = 32
+
 
 class StatusDetailsCallback(transformers.TrainerCallback):
     """
@@ -392,7 +394,7 @@ class Training:
                 examples["text"],
                 padding="max_length",
                 truncation=True,
-                max_length=512,
+                max_length=TOKENIZER_MAX_LENGTH,
             )
 
         print("Tokenizing dataset...")
@@ -503,7 +505,10 @@ class Training:
         # create a tokenize function that will tokenize the dataset
         def tokenize_function(examples):
             return tokenizer(
-                examples["text"], padding="max_length", truncation=True, max_length=512
+                examples["text"],
+                padding="max_length",
+                truncation=True,
+                max_length=TOKENIZER_MAX_LENGTH,
             )
 
         print("Tokenizing dataset...")
