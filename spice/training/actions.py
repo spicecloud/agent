@@ -2,7 +2,6 @@ import hashlib
 import json
 import logging
 import os
-import shutil
 from typing import Dict, Optional
 
 from aiohttp import client_exceptions
@@ -28,6 +27,7 @@ from spice.utils.config import (
     create_directory,
     read_config_file,
     update_config_file,
+    copy_dir,
 )
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -265,7 +265,7 @@ class Training:
     def upload_models(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-        training_round_model_repo = config["hfModelRepoId"]
+        hf_model_repo_id = config["hfModelRepoId"]
         training_round_id = config["trainingRound"]["id"]
         training_round_number = config["trainingRound"]["roundNumber"]
         training_job_id = config["trainingRound"]["trainingJob"]["id"]
@@ -287,24 +287,9 @@ class Training:
             status="UPLOADING",
         )
 
-        # Copies current training_round_model_repo config files (e.g. tokenizer, vocab)
-        # into model cache for upload to s3 and hf
-        def copy_hf_to_cache(
-            src_dir, dst_dir, ignore_files=["config.json", "pytorch_model.bin"]
-        ):  # noqa
-            for file in os.listdir(src_dir):
-                if file in ignore_files:
-                    continue
-
-                src_path = f"{src_dir}/{file}"
-                dst_path = f"{dst_dir}/{file}"
-                shutil.copy2(src_path, dst_path)
-
         # hf_model_directory could refer to different snapshots of the model
-        training_round_model_repo_formatted = training_round_model_repo.replace(
-            "/", "--"
-        )
-        snapshot_directory = f"models--{training_round_model_repo_formatted}/snapshots"
+        hf_model_repo_id_formatted = hf_model_repo_id.replace("/", "--")
+        snapshot_directory = f"models--{hf_model_repo_id_formatted}/snapshots"
         hf_model_directory = HF_HUB_DIRECTORY.joinpath(snapshot_directory)
         recent_snapshot_directory = max(
             hf_model_directory.iterdir(), key=lambda d: d.stat().st_mtime
@@ -312,7 +297,7 @@ class Training:
         recent_hf_model_directory = hf_model_directory.joinpath(
             recent_snapshot_directory
         )
-        copy_hf_to_cache(recent_hf_model_directory, model_cache_for_training_round)
+        copy_dir(recent_hf_model_directory, model_cache_for_training_round)
 
         for file in model_cache_for_training_round.iterdir():
             if file.is_file():
