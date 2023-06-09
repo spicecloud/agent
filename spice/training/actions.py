@@ -399,10 +399,50 @@ class Training:
 
         return tokenized_dataset
 
+    def _load_model(self, config, task):
+        # setup model cache for training
+        model_cache_for_training_round_step = None
+        if task == "train" or task == "test":
+            training_round_id = config["trainingRound"]["id"]
+            training_round_step_id = config["id"]
+            training_round_directory = (
+                f"{training_round_id}/steps/{training_round_step_id}"
+            )
+            model_cache_for_training_round_step = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+                training_round_directory
+            )
+
+        # select model
+        if task == "train":
+            pretrained_model_name_or_path = config["hfModelRepoId"]
+        elif task == "test":
+            if not model_cache_for_training_round_step:
+                error_message = f"_get_trainer with task={task} requires model_cache_for_training_round_step!"  # noqa
+                LOGGER.error(error_message)
+                raise ValueError(error_message)
+            pretrained_model_name_or_path = model_cache_for_training_round_step
+        elif task == "verify":
+            training_round_id = config["id"]
+            spice_model_round_cache = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+                f"{training_round_id}/"
+            )
+            pretrained_model_name_or_path = spice_model_round_cache
+        else:
+            error_message = f"_get_trainer with task={task} does not exist!"
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
+
+        # load your model with the number of expected labels:
+        print(f"Loading {task} model...")
+        model = AutoModelForSequenceClassification.from_pretrained(
+            pretrained_model_name_or_path, num_labels=5
+        )
+
+        return model
+
     def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-        hf_model_repo_id = config["hfModelRepoId"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
@@ -424,11 +464,8 @@ class Training:
         # tokenize dataset
         tokenized_dataset = self._tokenize_dataset(train_dataset, config, "train")
 
-        # Load your model with the number of expected labels:
-        print("Loading base model...")
-        model = AutoModelForSequenceClassification.from_pretrained(
-            hf_model_repo_id, num_labels=5
-        )
+        # load your model with the number of expected labels:
+        model = self._load_model(config, "train")
 
         training_args = TrainingArguments(
             output_dir=str(model_cache_for_training_round),
@@ -477,7 +514,6 @@ class Training:
     def test_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-        hf_model_repo_id = config["hfModelRepoId"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
@@ -499,11 +535,8 @@ class Training:
         # tokenize dataset
         tokenized_dataset = self._tokenize_dataset(test_dataset, config, "test")
 
-        # Load your model with the number of expected labels:
-        print("Loading base model...")
-        model = AutoModelForSequenceClassification.from_pretrained(
-            hf_model_repo_id, num_labels=5
-        )
+        # load your model with the number of expected labels:
+        model = self._load_model(config, "test")
 
         eval_args = TrainingArguments(
             output_dir=str(model_cache_for_training_round),
@@ -584,10 +617,6 @@ class Training:
             verification_round_directory
         )
 
-        spice_model_round_cache = SPICE_MODEL_CACHE_FILEPATH.joinpath(
-            f"{training_round_id}/"
-        )
-
         # get the presigned urls for a round's model + configs
         result = self._get_agent_round_presigned_urls(
             training_round_id=training_round_id,
@@ -629,11 +658,8 @@ class Training:
         # tokenize dataset
         tokenized_dataset = self._tokenize_dataset(test_dataset, config, "verify")
 
-        # Load your model with the number of expected labels:
-        print("Loading base model...")
-        model = AutoModelForSequenceClassification.from_pretrained(
-            spice_model_round_cache, num_labels=5
-        )
+        # load your model with the number of expected labels:
+        model = self._load_model(config, "verify")
 
         eval_args = TrainingArguments(
             output_dir=str(verification_cache_for_training_round),
