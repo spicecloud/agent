@@ -402,13 +402,6 @@ class Training:
     def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-
-        if config.get("status") == "READY_FOR_PICKUP":
-            self._update_training_round_step(
-                training_round_step_id=training_round_step_id, status="CLAIMED"
-            )
-            config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
-
         hf_model_repo_id = config["hfModelRepoId"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
@@ -484,13 +477,6 @@ class Training:
     def test_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-
-        if config.get("status") == "READY_FOR_PICKUP":
-            self._update_training_round_step(
-                training_round_step_id=training_round_step_id, status="CLAIMED"
-            )
-            config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
-
         hf_model_repo_id = config["hfModelRepoId"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
@@ -587,13 +573,6 @@ class Training:
     def verify_model(self):
         config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
         training_round_id = config["id"]
-
-        if config.get("status") == "READY_FOR_PICKUP":
-            self._update_training_round(
-                training_round_id=training_round_id, status="CLAIMED"
-            )
-            config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
-
         training_round_number = config["roundNumber"]
         training_job_id = config["trainingJob"]["id"]
         verification_batch_size = 32
