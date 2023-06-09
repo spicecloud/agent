@@ -319,6 +319,30 @@ class Training:
             training_round_step_id=training_round_step_id, status="COMPLETE"
         )
 
+    def _load_dataset(self, config, task):
+        # TODO: create one central training config file
+        if task == "train" or task == "test":
+            hf_dataset_repo_id = config["hfDatasetRepoId"]
+            hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
+        elif task == "verify":
+            hf_dataset_repo_id = config["trainingJob"]["baseDatasetRepoId"]
+            hf_dataset_repo_revision = config["trainingJob"]["baseDatasetRepoRevision"]
+        else:
+            error_message = f"_load_dataset with task={task} does not exist!"
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
+
+        if task == "train":
+            dataset_starting_row = config["datasetStartingRow"]
+            dataset_ending_row = config["datasetEndingRow"]
+            split = f"train[{dataset_starting_row}:{dataset_ending_row}]"
+        else:
+            split = "test"  # both test_model and verify_model uses test split
+
+        return load_dataset(
+            path=hf_dataset_repo_id, revision=hf_dataset_repo_revision, split=split
+        )
+
     def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
@@ -331,10 +355,6 @@ class Training:
 
         hf_model_repo_id = config["hfModelRepoId"]
         hf_model_repo_revision = config["hfModelRepoRevision"]
-        hf_dataset_repo_id = config["hfDatasetRepoId"]
-        hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
-        dataset_starting_row = config["datasetStartingRow"]
-        dataset_ending_row = config["datasetEndingRow"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
@@ -352,12 +372,7 @@ class Training:
             training_round_step_id=training_round_step_id, status="DOWNLOADING_DATASET"
         )
 
-        split_string = f"train[{dataset_starting_row}:{dataset_ending_row}]"
-        train_dataset = load_dataset(
-            path=hf_dataset_repo_id,
-            revision=hf_dataset_repo_revision,
-            split=split_string,
-        )
+        train_dataset = self._load_dataset(config, "train")
 
         # get tokenizer from base model bert-base-cased
         print("Loading tokenizer...")
@@ -452,8 +467,6 @@ class Training:
 
         hf_model_repo_id = config["hfModelRepoId"]
         hf_model_repo_revision = config["hfModelRepoRevision"]
-        hf_dataset_repo_id = config["hfDatasetRepoId"]
-        hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
@@ -471,9 +484,7 @@ class Training:
             status="DOWNLOADING_TESTING_DATASET",
         )
 
-        test_dataset = load_dataset(
-            path=hf_dataset_repo_id, revision=hf_dataset_repo_revision, split="test"
-        )
+        test_dataset = self._load_dataset(config, "test")
 
         # get tokenizer from base model bert-base-cased
         print("Loading tokenizer...")
@@ -594,8 +605,6 @@ class Training:
         hf_model_repo_id = config["trainingJob"]["hfModelRepoId"]
         base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
         base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
-        dataset_repo_id = config["trainingJob"]["baseDatasetRepoId"]
-        dataset_repo_revision = config["trainingJob"]["baseDatasetRepoRevision"]
         verification_batch_size = 32
 
         # create the folder for the verification round
@@ -646,10 +655,7 @@ class Training:
             status="DOWNLOADING_VERIFICATION_DATASET",
         )
 
-        # We need to actually create validation files here
-        test_dataset = load_dataset(
-            path=dataset_repo_id, revision=dataset_repo_revision, split="test"
-        )
+        test_dataset = self._load_dataset(config, "verify")
 
         # get tokenizer from base model bert-base-cased
         print("Loading tokenizer...")
