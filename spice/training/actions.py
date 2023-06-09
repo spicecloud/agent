@@ -428,7 +428,7 @@ class Training:
             )
             pretrained_model_name_or_path = spice_model_round_cache
         else:
-            error_message = f"_get_trainer with task={task} does not exist!"
+            error_message = f"_load_model with task={task} does not exist!"
             LOGGER.error(error_message)
             raise ValueError(error_message)
 
@@ -440,10 +440,34 @@ class Training:
 
         return model
 
+    def _get_training_arguments(self, output_dir, config, task):
+        training_arguments = TrainingArguments(
+            output_dir=str(output_dir),
+            num_train_epochs=1,
+            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
+        )
+
+        if task == "train":
+            # set to "no", set to "epoch" for eval + train
+            training_arguments.evaluation_strategy = "no"
+            training_arguments.per_device_train_batch_size = config["trainingBatchSize"]
+        elif task == "test":
+            training_arguments.evaluation_strategy = "epoch"
+            training_arguments.per_device_eval_batch_size = config["trainingBatchSize"]
+        elif task == "verify":
+            training_arguments.evaluation_strategy = "epoch"
+            training_arguments.per_device_eval_batch_size = 32
+            training_arguments.save_strategy = "no"
+        else:
+            error_message = f"_get_training_arguments with task={task} does not exist!"
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
+
+        return training_arguments
+
     def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-        training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
         # create the folder for the new training round
@@ -467,14 +491,9 @@ class Training:
         # load your model with the number of expected labels:
         model = self._load_model(config, "train")
 
-        training_args = TrainingArguments(
-            output_dir=str(model_cache_for_training_round),
-            evaluation_strategy="no",  # set to "no", set to "epoch" for eval + train
-            num_train_epochs=1,
-            per_device_train_batch_size=training_batch_size,
-            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
+        training_args = self._get_training_arguments(
+            model_cache_for_training_round, config, "train"
         )
-
         metric = evaluate.load("accuracy")
 
         def compute_metrics(eval_pred):
@@ -514,7 +533,6 @@ class Training:
     def test_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-        training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
         # create the folder for the new training round
@@ -538,12 +556,8 @@ class Training:
         # load your model with the number of expected labels:
         model = self._load_model(config, "test")
 
-        eval_args = TrainingArguments(
-            output_dir=str(model_cache_for_training_round),
-            evaluation_strategy="epoch",
-            num_train_epochs=1,
-            per_device_eval_batch_size=training_batch_size,
-            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
+        eval_args = self._get_training_arguments(
+            model_cache_for_training_round, config, "test"
         )
 
         metric = evaluate.load("accuracy")
@@ -608,7 +622,6 @@ class Training:
         training_round_id = config["id"]
         training_round_number = config["roundNumber"]
         training_job_id = config["trainingJob"]["id"]
-        verification_batch_size = 32
 
         # create the folder for the verification round
         # where the step model will be saved
@@ -661,13 +674,8 @@ class Training:
         # load your model with the number of expected labels:
         model = self._load_model(config, "verify")
 
-        eval_args = TrainingArguments(
-            output_dir=str(verification_cache_for_training_round),
-            evaluation_strategy="epoch",
-            num_train_epochs=1,
-            per_device_eval_batch_size=verification_batch_size,
-            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
-            save_strategy="no",
+        eval_args = self._get_training_arguments(
+            verification_cache_for_training_round, config, "verify"
         )
 
         metric = evaluate.load("accuracy")
