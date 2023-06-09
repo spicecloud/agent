@@ -343,6 +343,62 @@ class Training:
             path=hf_dataset_repo_id, revision=hf_dataset_repo_revision, split=split
         )
 
+    def _tokenize_dataset(self, dataset, config, task):
+        # TODO: create one central training config file
+
+        # get tokenizer
+        print("Loading tokenizer...")
+        if task == "train" or task == "test":
+            hf_model_repo_id = config["hfModelRepoId"]
+            hf_model_repo_revision = config["hfModelRepoRevision"]
+
+            tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name_or_path=hf_model_repo_id,
+                revision=hf_model_repo_revision,
+            )
+        elif task == "verify":
+            training_round_number = config["roundNumber"]
+            hf_model_repo_id = config["trainingJob"]["hfModelRepoId"]
+            base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
+            base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
+
+            tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name_or_path=hf_model_repo_id
+                if hf_model_repo_id and training_round_number > 1
+                else base_model_repo_id,
+                revision="main"  # uses main tokenizer
+                if hf_model_repo_id and training_round_number > 1
+                else base_model_repo_revision,
+            )
+        else:
+            error_message = f"_tokenize_dataset with task={task} does not exist!"
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
+
+        # create a tokenize function that will tokenize the dataset
+        def tokenize_function(examples):
+            return tokenizer(
+                examples["text"],
+                padding="max_length",
+                truncation=True,
+                # max_length=TOKENIZER_MAX_LENGTH,
+            )
+
+        print("Tokenizing dataset...")
+        tokenized_dataset = dataset.map(tokenize_function, batched=True)
+
+        # Remove the text column because the model does not accept raw text as an input
+        tokenized_dataset = tokenized_dataset.remove_columns(["text"])
+
+        # Rename the label column to labels because
+        # the model expects the argument to be named labels
+        tokenized_dataset = tokenized_dataset.rename_column("label", "labels")
+
+        # Set the format of the dataset to return PyTorch tensors instead of lists
+        tokenized_dataset.set_format("torch")
+
+        return tokenized_dataset
+
     def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
@@ -354,7 +410,6 @@ class Training:
             config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
 
         hf_model_repo_id = config["hfModelRepoId"]
-        hf_model_repo_revision = config["hfModelRepoRevision"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
@@ -371,39 +426,10 @@ class Training:
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="DOWNLOADING_DATASET"
         )
-
         train_dataset = self._load_dataset(config, "train")
 
-        # get tokenizer from base model bert-base-cased
-        print("Loading tokenizer...")
-        tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=hf_model_repo_id,
-            revision=hf_model_repo_revision,
-        )
-
-        # create a tokenize function that will tokenize the dataset
-        # bert-base-uncased uses a subword tokenizer so the maximum length corresponds
-        # to 512 subword tokens
-        def tokenize_function(examples):
-            return tokenizer(
-                examples["text"],
-                padding="max_length",
-                truncation=True,
-                # max_length=TOKENIZER_MAX_LENGTH,
-            )
-
-        print("Tokenizing dataset...")
-        tokenized_datasets = train_dataset.map(tokenize_function, batched=True)
-
-        # Remove the text column because the model does not accept raw text as an input
-        tokenized_datasets = tokenized_datasets.remove_columns(["text"])
-
-        # Rename the label column to labels because
-        # the model expects the argument to be named labels
-        tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
-
-        # Set the format of the dataset to return PyTorch tensors instead of lists
-        tokenized_datasets.set_format("torch")
+        # tokenize dataset
+        tokenized_dataset = self._tokenize_dataset(train_dataset, config, "train")
 
         # Load your model with the number of expected labels:
         print("Loading base model...")
@@ -435,7 +461,7 @@ class Training:
         trainer = Trainer(
             model=model,
             args=training_args,
-            train_dataset=tokenized_datasets,
+            train_dataset=tokenized_dataset,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
@@ -466,7 +492,6 @@ class Training:
             config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
 
         hf_model_repo_id = config["hfModelRepoId"]
-        hf_model_repo_revision = config["hfModelRepoRevision"]
         training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
@@ -483,41 +508,10 @@ class Training:
             training_round_step_id=training_round_step_id,
             status="DOWNLOADING_TESTING_DATASET",
         )
-
         test_dataset = self._load_dataset(config, "test")
 
-        # get tokenizer from base model bert-base-cased
-        print("Loading tokenizer...")
-        tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=hf_model_repo_id,
-            revision=hf_model_repo_revision,
-        )
-
-        # create a tokenize function that will tokenize the dataset
-        def tokenize_function(examples):
-            return tokenizer(
-                examples["text"],
-                padding="max_length",
-                truncation=True,
-                # max_length=TOKENIZER_MAX_LENGTH,
-            )
-
-        print("Tokenizing dataset...")
-        tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
-
-        # Remove the text column because the model does not accept raw text as an input
-        tokenized_test_datasets = tokenized_test_datasets.map(
-            tokenize_function, batched=True
-        )
-
-        # Rename the label column to labels because
-        # the model expects the argument to be named labels
-        tokenized_test_datasets = tokenized_test_datasets.rename_column(
-            "label", "labels"
-        )
-
-        # Set the format of the dataset to return PyTorch tensors instead of lists
-        tokenized_test_datasets.set_format("torch")
+        # tokenize dataset
+        tokenized_dataset = self._tokenize_dataset(test_dataset, config, "test")
 
         # Load your model with the number of expected labels:
         print("Loading base model...")
@@ -549,7 +543,7 @@ class Training:
         trainer = Trainer(
             model=model,
             args=eval_args,
-            eval_dataset=tokenized_test_datasets,
+            eval_dataset=tokenized_dataset,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
@@ -602,9 +596,6 @@ class Training:
 
         training_round_number = config["roundNumber"]
         training_job_id = config["trainingJob"]["id"]
-        hf_model_repo_id = config["trainingJob"]["hfModelRepoId"]
-        base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
-        base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
         verification_batch_size = 32
 
         # create the folder for the verification round
@@ -654,45 +645,10 @@ class Training:
             training_round_id=training_round_id,
             status="DOWNLOADING_VERIFICATION_DATASET",
         )
-
         test_dataset = self._load_dataset(config, "verify")
 
-        # get tokenizer from base model bert-base-cased
-        print("Loading tokenizer...")
-        tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=hf_model_repo_id
-            if hf_model_repo_id and training_round_number > 1
-            else base_model_repo_id,
-            revision="main"
-            if hf_model_repo_id and training_round_number > 1
-            else base_model_repo_revision,
-        )
-
-        # create a tokenize function that will tokenize the dataset
-        def tokenize_function(examples):
-            return tokenizer(
-                examples["text"],
-                padding="max_length",
-                truncation=True,
-                # max_length=TOKENIZER_MAX_LENGTH,
-            )
-
-        print("Tokenizing dataset...")
-        tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
-
-        # Remove the text column because the model does not accept raw text as an input
-        tokenized_test_datasets = tokenized_test_datasets.map(
-            tokenize_function, batched=True
-        )
-
-        # Rename the label column to labels because
-        # the model expects the argument to be named labels
-        tokenized_test_datasets = tokenized_test_datasets.rename_column(
-            "label", "labels"
-        )
-
-        # Set the format of the dataset to return PyTorch tensors instead of lists
-        tokenized_test_datasets.set_format("torch")
+        # tokenize dataset
+        tokenized_dataset = self._tokenize_dataset(test_dataset, config, "verify")
 
         # Load your model with the number of expected labels:
         print("Loading base model...")
@@ -725,7 +681,7 @@ class Training:
         trainer = Trainer(
             model=model,
             args=eval_args,
-            eval_dataset=tokenized_test_datasets,
+            eval_dataset=tokenized_dataset,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
