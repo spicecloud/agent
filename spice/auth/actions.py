@@ -12,7 +12,7 @@ class Auth:
             """
             query whoami {
                 whoami {
-                username
+                    username
                 }
             }
         """

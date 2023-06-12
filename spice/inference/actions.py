@@ -48,15 +48,16 @@ class Inference:
     def update_run_status(self, run_id: str, status: str, result: str):
         mutation = gql(
             """
-            mutation updateRunStatus($runId: String!, $status: String!, $result: String) {
-                updateRunStatus(runId: $runId, status: $status, result: $result) {
+            mutation updateRunStatus($input: UpdateRunStatusInput!) {
+                updateRunStatus(input: $input) {
                     runId
                     status
                 }
             }
         """  # noqa
         )
-        variables = {"runId": run_id, "status": status, "result": result}
+        input = {"runId": run_id, "status": status, "result": result}
+        variables = {"input": input}
         result = self.spice.session.execute(mutation, variable_values=variables)
         return result
 
