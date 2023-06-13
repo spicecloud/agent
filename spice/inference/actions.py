@@ -50,8 +50,10 @@ class Inference:
             """
             mutation updateRunStatus($input: UpdateRunStatusInput!) {
                 updateRunStatus(input: $input) {
-                    runId
-                    status
+                    ... on CurrentRunStatus {
+                        runId
+                        status
+                    }
                 }
             }
         """  # noqa
