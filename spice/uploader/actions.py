@@ -55,24 +55,22 @@ class Uploader:
     ):
         mutation = gql(
             """
-            mutation createFile(
-            $fileName: String!
-            $fileSize: Int!
-            $fileChecksum: String!
-            $location: String!
-            ) {
-                createFile(fileName: $fileName, fileSize: $fileSize, fileChecksum: $fileChecksum, location: $location) {
-                    id
+            mutation createFile($input: CreateFileInput!) {
+                createFile(input: $input) {
+                    ... on File {
+                        id
+                    }
                 }
             }
         """  # noqa
         )
-        variables = {
+        input = {
             "fileName": file_name,
             "fileSize": file_size,
             "fileChecksum": file_checksum,
             "location": location,
         }
+        variables = {"input": input}
         result = self.spice.session.execute(mutation, variable_values=variables)
         return result.get("createFile").get("id")
 
@@ -84,21 +82,24 @@ class Uploader:
     ):
         mutation = gql(
             """
-            mutation updateFileStatus($fileId: String!, $isUploading: Boolean, $isComplete: Boolean) {
-                updateFileStatus(fileId: $fileId, isUploading: $isUploading, isComplete: $isComplete) {
-                    id
+            mutation updateFileStatus($input: UpdateFileStatusInput!) {
+                updateFileStatus(input: $input) {
+                    ... on File {
+                        id
+                    }
                 }
             }
         """  # noqa
         )
-        variables: Dict[str, str | bool] = {
+        input: Dict[str, str | bool] = {
             "fileId": file_id,
         }
         if is_uploading is not None:
-            variables["isUploading"] = is_uploading
+            input["isUploading"] = is_uploading
         if is_complete is not None:
-            variables["isComplete"] = is_complete
+            input["isComplete"] = is_complete
 
+        variables = {"input": input}
         result = self.spice.session.execute(mutation, variable_values=variables)
         return result
 

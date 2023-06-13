@@ -128,17 +128,20 @@ class Hardware:
         system_info = self.get_system_info()
         mutation = gql(
             """
-            mutation registerHardware($systemInfo: JSON!) {
-                registerHardware(systemInfo: $systemInfo) {
-                    fingerprint
-                    rabbitmqPassword
-                    rabbitmqHost
-                    rabbitmqPort
+            mutation registerHardware($input: RegisterHardwareInput!) {
+                registerHardware(input: $input) {
+                    ... on RegisterHardware {
+                        fingerprint
+                        rabbitmqPassword
+                        rabbitmqHost
+                        rabbitmqPort
+                    }
                 }
             }
         """
         )
-        variables = {"systemInfo": system_info}
+        input = {"systemInfo": system_info}
+        variables = {"input": input}
         result = self.spice.session.execute(mutation, variable_values=variables)
         fingerprint = result.get("registerHardware").get("fingerprint")
         rabbitmq_password = result.get("registerHardware").get("rabbitmqPassword")
@@ -171,20 +174,23 @@ class Hardware:
 
         mutation = gql(
             """
-            mutation checkIn($isHealthy: Boolean!, $isQuarantined: Boolean!, $isAvailable: Boolean!) {
-                checkIn(isHealthy: $isHealthy, isQuarantined: $isQuarantined, isAvailable: $isAvailable) {
-                    createdAt
-                    updatedAt
-                    lastCheckIn
+            mutation checkIn($input: CheckInInput!) {
+                checkIn(input: $input) {
+                    ... on Hardware {
+                        createdAt
+                        updatedAt
+                        lastCheckIn
+                    }
                 }
             }
         """  # noqa
         )
-        variables = {
+        input = {
             "isHealthy": is_healthy,
             "isQuarantined": is_quarantined,
             "isAvailable": is_available,
         }
+        variables = {"input": input}
         try:
             result = self.spice.session.execute(mutation, variable_values=variables)
         except client_exceptions.ClientConnectorError:

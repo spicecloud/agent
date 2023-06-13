@@ -131,34 +131,37 @@ class Training:
     ):
         mutation = gql(
             """
-            mutation updateTrainingRoundFromHardware($trainingRoundId: String!, $status: String!, $statusDetails: JSON, $roundAccuracy: Float, $roundLoss: Float) {
-                updateTrainingRoundFromHardware(trainingRoundId: $trainingRoundId, status: $status, statusDetails: $statusDetails, roundAccuracy: $roundAccuracy, roundLoss: $roundLoss) {
-                    id
-                    status
-                    statusDetails
-                    roundNumber
-                    trainingJob {
+            mutation updateTrainingRound($input: UpdateTrainingRoundInput!) {
+                updateTrainingRound(input: $input) {
+                    ... on TrainingRound {
                         id
-                        baseModelRepoId
-                        baseModelRepoRevision
-                        baseDatasetRepoId
-                        baseDatasetRepoRevision
-                        hfModelRepoId
+                        status
+                        statusDetails
+                        roundNumber
+                        trainingJob {
+                            id
+                            baseModelRepoId
+                            baseModelRepoRevision
+                            baseDatasetRepoId
+                            baseDatasetRepoRevision
+                            hfModelRepoId
+                        }
                     }
                 }
             }
             """  # noqa
         )
-        variables: Dict[str, str | float] = {"trainingRoundId": training_round_id}
+        input: Dict[str, str | float] = {"trainingRoundId": training_round_id}
         if status is not None:
-            variables["status"] = status
+            input["status"] = status
         if status_details:
-            variables["statusDetails"] = json.dumps(status_details)
+            input["statusDetails"] = json.dumps(status_details)
         if round_accuracy is not None:
-            variables["roundAccuracy"] = round_accuracy
+            input["roundAccuracy"] = round_accuracy
         if round_loss is not None:
-            variables["roundLoss"] = round_loss
+            input["roundLoss"] = round_loss
 
+        variables = {"input": input}
         try:
             result = self.spice.session.execute(mutation, variable_values=variables)
         except TransportQueryError as exception:
@@ -172,7 +175,7 @@ class Training:
 
         update_config_file(
             filepath=SPICE_ROUND_VERIFICATION_FILEPATH,
-            new_config=result["updateTrainingRoundFromHardware"],
+            new_config=result["updateTrainingRound"],
         )
         return result
 
@@ -187,43 +190,45 @@ class Training:
     ):
         mutation = gql(
             """
-            mutation updateTrainingRoundStepFromHardware($trainingRoundStepId: String!, $status: String!, $fileId: String, $statusDetails: JSON, $stepAccuracy: Float, $stepLoss: Float) {
-                updateTrainingRoundStepFromHardware(trainingRoundStepId: $trainingRoundStepId, status: $status, fileId: $fileId, statusDetails: $statusDetails, stepAccuracy: $stepAccuracy, stepLoss: $stepLoss) {
-                    id
-                    status
-                    hfModelRepoId
-                    hfModelRepoRevision
-                    hfDatasetRepoId
-                    hfDatasetRepoRevision
-                    datasetStartingRow
-                    datasetEndingRow
-                    trainingEpochs
-                    trainingBatchSize
-                    trainingRound {
+            mutation updateTrainingRoundStep($input: UpdateTrainingRoundStepInput!) {
+                updateTrainingRoundStep(input: $input) {
+                    ... on TrainingRoundStep {
                         id
-                        roundNumber
-                        trainingJob {
+                        status
+                        hfModelRepoId
+                        hfModelRepoRevision
+                        hfDatasetRepoId
+                        hfDatasetRepoRevision
+                        datasetStartingRow
+                        datasetEndingRow
+                        trainingEpochs
+                        trainingBatchSize
+                        trainingRound {
                             id
+                            roundNumber
+                            trainingJob {
+                                id
+                            }
                         }
+                        statusDetails
                     }
-                    statusDetails
                 }
             }
         """  # noqa
         )
-        variables: Dict[str, str | float] = {
-            "trainingRoundStepId": training_round_step_id
-        }
+        input: Dict[str, str | float] = {"trainingRoundStepId": training_round_step_id}
         if status is not None:
-            variables["status"] = status
+            input["status"] = status
         if status_details:
-            variables["statusDetails"] = json.dumps(status_details)
+            input["statusDetails"] = json.dumps(status_details)
         if file_id is not None:
-            variables["fileId"] = file_id
+            input["fileId"] = file_id
         if step_accuracy is not None:
-            variables["stepAccuracy"] = step_accuracy
+            input["stepAccuracy"] = step_accuracy
         if step_loss is not None:
-            variables["stepLoss"] = step_loss
+            input["stepLoss"] = step_loss
+
+        variables = {"input": input}
 
         try:
             result = self.spice.session.execute(mutation, variable_values=variables)
@@ -242,7 +247,7 @@ class Training:
 
         update_config_file(
             filepath=SPICE_TRAINING_FILEPATH,
-            new_config=result["updateTrainingRoundStepFromHardware"],
+            new_config=result["updateTrainingRoundStep"],
         )
         return result
 
@@ -439,7 +444,7 @@ class Training:
         trainer.save_model(output_dir=str(model_cache_for_training_round))
 
         self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="TESTING"
+            training_round_step_id=training_round_step_id, status="TRAINING_COMPLETE"
         )
 
         # clear the cache
