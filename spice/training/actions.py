@@ -444,7 +444,7 @@ class Training:
         trainer.save_model(output_dir=str(model_cache_for_training_round))
 
         self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="TESTING"
+            training_round_step_id=training_round_step_id, status="TRAINING_COMPLETE"
         )
 
         # clear the cache
