@@ -131,8 +131,8 @@ class Training:
     ):
         mutation = gql(
             """
-            mutation updateTrainingRoundFromHardware($input: UpdateTrainingRoundFromHardwareInput!) {
-                updateTrainingRoundFromHardware(input: $input) {
+            mutation updateTrainingRound($input: UpdateTrainingRoundInput!) {
+                updateTrainingRound(input: $input) {
                     ... on TrainingRound {
                         id
                         status
@@ -175,7 +175,7 @@ class Training:
 
         update_config_file(
             filepath=SPICE_ROUND_VERIFICATION_FILEPATH,
-            new_config=result["updateTrainingRoundFromHardware"],
+            new_config=result["updateTrainingRound"],
         )
         return result
 
@@ -190,8 +190,8 @@ class Training:
     ):
         mutation = gql(
             """
-            mutation updateTrainingRoundStepFromHardware($input: UpdateTrainingRoundStepFromHardwareInput!) {
-                updateTrainingRoundStepFromHardware(input: $input) {
+            mutation updateTrainingRoundStep($input: UpdateTrainingRoundStepInput!) {
+                updateTrainingRoundStep(input: $input) {
                     ... on TrainingRoundStep {
                         id
                         status
@@ -247,7 +247,7 @@ class Training:
 
         update_config_file(
             filepath=SPICE_TRAINING_FILEPATH,
-            new_config=result["updateTrainingRoundStepFromHardware"],
+            new_config=result["updateTrainingRoundStep"],
         )
         return result
 
