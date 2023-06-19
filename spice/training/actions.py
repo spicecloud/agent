@@ -52,18 +52,11 @@ class ThreadedStatusDetailsCallbackDecorator:
     def __init__(self, is_threaded: Optional[bool] = False):
         self.is_threaded = is_threaded
         self.current_thread = None
-        self.wrapped_class = "StatusDetailsCallback"
 
     def __call__(self, cls):
         if not self.is_threaded:
             return cls
 
-        # TODO: Remove cls.__name__, import the target class, and check with
-        # cls instance type
-        if cls.__name__ != self.wrapped_class:
-            raise TypeError(
-                f"{self.__class__.__name__} can only be applied to {self.wrapped_class}"
-            )
 
         # Wrap functions with defined decorators
         # Example: on_step_end gets wrapped with on_step_end_decorator
