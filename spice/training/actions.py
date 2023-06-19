@@ -77,6 +77,11 @@ class ThreadedStatusDetailsCallbackDecorator:
         setattr(cls, "decorated_methods", decorated_methods)
         return cls
 
+    def __del__(self):
+        if self.current_thread:
+            self.current_thread.join()
+            del self.current_thread
+
     def on_train_begin_decorator(self, function):
         def wrapper(*args, **kwargs):
             if not self.current_thread:
