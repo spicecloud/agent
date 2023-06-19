@@ -84,44 +84,65 @@ class ThreadedStatusDetailsCallbackDecorator:
 
     def on_train_begin_decorator(self, function):
         def wrapper(*args, **kwargs):
-            if not self.current_thread:
-                self.current_thread = self._get_threaded_function(
-                    function, *args, **kwargs
-                )
+            try:
+                if not self.current_thread:
+                    self.current_thread = self._get_threaded_function(
+                        function, *args, **kwargs
+                    )
 
-                self.current_thread.start()
+                    self.current_thread.start()
+            except KeyboardInterrupt as exception:
+                if self.current_thread:
+                    if self.current_thread.is_alive():
+                        self.current_thread.join()
+                    del self.current_thread
+                raise exception
 
         return wrapper
 
     def on_step_end_decorator(self, function):
         def wrapper(*args, **kwargs):
-            # If the current thread is no longer alive, we join it with the main thread
-            # and reset current thread
-            if self.current_thread and not self.current_thread.is_alive():
-                self.current_thread.join()
-                del self.current_thread
-                self.current_thread = None
+            try:
+                # If the current thread is no longer alive, we join it with the main
+                # thread and reset current thread
+                if self.current_thread and not self.current_thread.is_alive():
+                    self.current_thread.join()
+                    del self.current_thread
+                    self.current_thread = None
 
-            # We set the current thread and start it's activity
-            if not self.current_thread:
-                self.current_thread = self._get_threaded_function(
-                    function, *args, **kwargs
-                )
-                self.current_thread.start()
+                # We set the current thread and start it's activity
+                if not self.current_thread:
+                    self.current_thread = self._get_threaded_function(
+                        function, *args, **kwargs
+                    )
+                    self.current_thread.start()
+            except KeyboardInterrupt as exception:
+                if self.current_thread:
+                    if self.current_thread.is_alive():
+                        self.current_thread.join()
+                    del self.current_thread
+                raise exception
 
         return wrapper
 
     def on_train_end_decorator(self, function):
         def wrapper(*args, **kwargs):
-            # Complete final on_step_end update
-            if self.current_thread and self.current_thread.is_alive():
-                self.current_thread.join()
-                del self.current_thread
-                self.current_thread = None
+            try:
+                # Complete final on_step_end update
+                if self.current_thread and self.current_thread.is_alive():
+                    self.current_thread.join()
+                    del self.current_thread
+                    self.current_thread = None
 
-            # We execute on_train_end on the main thread since it is the final call
-            # in StatusDetailsCallback and we have to wait for it's completion.
-            function(*args, **kwargs)
+                # We execute on_train_end on the main thread since it is the final call
+                # in StatusDetailsCallback and we have to wait for it's completion.
+                function(*args, **kwargs)
+            except KeyboardInterrupt as exception:
+                if self.current_thread:
+                    if self.current_thread.is_alive():
+                        self.current_thread.join()
+                    del self.current_thread
+                raise exception
 
         return wrapper
 
