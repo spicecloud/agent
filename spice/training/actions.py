@@ -4,16 +4,15 @@ import logging
 import os
 from typing import Dict, Optional
 
-import evaluate
-import numpy as np
-import requests
-import torch
-import transformers
 from aiohttp import client_exceptions
 from datasets import load_dataset
+import evaluate
 from gql import gql
 from gql.transport.exceptions import TransportQueryError
-from transformers import (
+import numpy as np
+import requests
+import torch  # noqa
+from transformers import (  # noqa
     AutoModelForSequenceClassification,
     AutoTokenizer,
     Trainer,
@@ -31,11 +30,17 @@ from spice.utils.config import (
     update_config_file,
 )
 
-LOGGER = logging.getLogger(__name__)
-MODEL_BUCKET_NAME = "spice-models"
-TOKENIZER_MAX_LENGTH = 32
-
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+import torch  # noqa
+import transformers  # noqa
+
+LOGGER = logging.getLogger(__name__)
+
+
+MODEL_BUCKET_NAME = "spice-models"
+
+TOKENIZER_MAX_LENGTH = 32
 
 
 class StatusDetailsCallback(transformers.TrainerCallback):
