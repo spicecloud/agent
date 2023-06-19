@@ -76,10 +76,10 @@ class ThreadedStatusDetailsCallbackDecorator:
     def on_train_begin_decorator(self, function):
         def wrapper(*args, **kwargs):
             if not self.current_thread:
-                on_train_begin_thread = self._get_threaded_function(
+                self.current_thread = self._get_threaded_function(
                     function, *args, **kwargs
                 )
-                self.current_thread = on_train_begin_thread
+
                 on_train_begin_thread.start()
 
         return wrapper
