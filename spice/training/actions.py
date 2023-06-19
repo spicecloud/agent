@@ -78,9 +78,7 @@ class ThreadedStatusDetailsCallbackDecorator:
         return cls
 
     def __del__(self):
-        if self.current_thread:
-            self.current_thread.join()
-            del self.current_thread
+        self._clean_current_thread()
 
     def on_train_begin_decorator(self, function):
         def wrapper(*args, **kwargs):
@@ -92,10 +90,7 @@ class ThreadedStatusDetailsCallbackDecorator:
 
                     self.current_thread.start()
             except KeyboardInterrupt as exception:
-                if self.current_thread:
-                    if self.current_thread.is_alive():
-                        self.current_thread.join()
-                    del self.current_thread
+                self._clean_current_thread()
                 raise exception
 
         return wrapper
@@ -117,10 +112,7 @@ class ThreadedStatusDetailsCallbackDecorator:
                     )
                     self.current_thread.start()
             except KeyboardInterrupt as exception:
-                if self.current_thread:
-                    if self.current_thread.is_alive():
-                        self.current_thread.join()
-                    del self.current_thread
+                self._clean_current_thread()
                 raise exception
 
         return wrapper
@@ -138,10 +130,7 @@ class ThreadedStatusDetailsCallbackDecorator:
                 # in StatusDetailsCallback and we have to wait for it's completion.
                 function(*args, **kwargs)
             except KeyboardInterrupt as exception:
-                if self.current_thread:
-                    if self.current_thread.is_alive():
-                        self.current_thread.join()
-                    del self.current_thread
+                self._clean_current_thread()
                 raise exception
 
         return wrapper
@@ -152,6 +141,12 @@ class ThreadedStatusDetailsCallbackDecorator:
 
         thread = threading.Thread(target=target_function)
         return thread
+
+    def _clean_current_thread(self):
+        if self.current_thread:
+            if self.current_thread.is_alive():
+                self.current_thread.join()
+            del self.current_thread
 
 
 @ThreadedStatusDetailsCallbackDecorator(is_threaded=True)
