@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 from typing import Dict, Optional
 
 from aiohttp import client_exceptions
@@ -43,6 +44,112 @@ MODEL_BUCKET_NAME = "spice-models"
 TOKENIZER_MAX_LENGTH = 32
 
 
+class ThreadedStatusDetailsCallbackDecorator:
+    """
+    A class decorator that enables threaded functionality for StatusDetailsCallback
+    """
+
+    def __init__(self, is_threaded: Optional[bool] = False):
+        self.is_threaded = is_threaded
+        self.current_thread = None
+
+    def __call__(
+        self,
+        cls,
+        functions_to_decorate=["on_train_begin", "on_step_end", "on_train_end"],
+    ):
+        if not self.is_threaded:
+            return cls
+
+        # Wrap functions with defined decorators
+        # Example: on_step_end gets wrapped with on_step_end_decorator
+        decorated_methods = []
+        for name in functions_to_decorate:
+            value = cls.__dict__[name]
+            if callable(value):
+                decorated_method = getattr(self, f"{name}_decorator", None)
+                if decorated_method:
+                    decorated_method = decorated_method(value)
+                    setattr(cls, name, decorated_method)
+                    decorated_methods.append(name)
+
+        # Set wrapped class' attributes
+        setattr(cls, "decorated_methods", decorated_methods)
+        return cls
+
+    def __del__(self):
+        self._clean_current_thread()
+
+    def on_train_begin_decorator(self, function):
+        def wrapper(*args, **kwargs):
+            try:
+                if not self.current_thread:
+                    self.current_thread = self._get_threaded_function(
+                        function, *args, **kwargs
+                    )
+
+                    self.current_thread.start()
+            except KeyboardInterrupt as exception:
+                self._clean_current_thread()
+                raise exception
+
+        return wrapper
+
+    def on_step_end_decorator(self, function):
+        def wrapper(*args, **kwargs):
+            try:
+                # If the current thread is no longer alive, we join it with the main
+                # thread and reset current thread
+                if self.current_thread and not self.current_thread.is_alive():
+                    self.current_thread.join()
+                    del self.current_thread
+                    self.current_thread = None
+
+                # We set the current thread and start it's activity
+                if not self.current_thread:
+                    self.current_thread = self._get_threaded_function(
+                        function, *args, **kwargs
+                    )
+                    self.current_thread.start()
+            except KeyboardInterrupt as exception:
+                self._clean_current_thread()
+                raise exception
+
+        return wrapper
+
+    def on_train_end_decorator(self, function):
+        def wrapper(*args, **kwargs):
+            try:
+                # Complete final on_step_end update
+                if self.current_thread and self.current_thread.is_alive():
+                    self.current_thread.join()
+                    del self.current_thread
+                    self.current_thread = None
+
+                # We execute on_train_end on the main thread since it is the final call
+                # in StatusDetailsCallback and we have to wait for it's completion.
+                function(*args, **kwargs)
+            except KeyboardInterrupt as exception:
+                self._clean_current_thread()
+                raise exception
+
+        return wrapper
+
+    def _get_threaded_function(self, function, *args, **kwargs) -> threading.Thread:
+        def target_function():
+            function(*args, **kwargs)
+
+        thread = threading.Thread(target=target_function)
+        return thread
+
+    def _clean_current_thread(self):
+        if self.current_thread:
+            if self.current_thread.is_alive():
+                self.current_thread.join()
+            del self.current_thread
+
+
+@ThreadedStatusDetailsCallbackDecorator(is_threaded=True)
 class StatusDetailsCallback(transformers.TrainerCallback):
     """
     A [`TrainerCallback`] that sends the progress of training or evaluation
@@ -106,7 +213,7 @@ class StatusDetailsCallback(transformers.TrainerCallback):
                 self.training._update_training_round(
                     training_round_id=self.training_round_id,
                     status=self.status,
-                    status_details={"progress": 0},
+                    status_details={"progress": 100},
                 )
 
 
