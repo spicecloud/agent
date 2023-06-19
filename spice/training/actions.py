@@ -436,23 +436,155 @@ class Training:
             training_round_step_id=training_round_step_id, status="COMPLETE"
         )
 
+    def _load_dataset(self, config, task):
+        # TODO: create one central training config file
+        if task == "train" or task == "test":
+            hf_dataset_repo_id = config["hfDatasetRepoId"]
+            hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
+        elif task == "verify":
+            hf_dataset_repo_id = config["trainingJob"]["baseDatasetRepoId"]
+            hf_dataset_repo_revision = config["trainingJob"]["baseDatasetRepoRevision"]
+        else:
+            error_message = f"_load_dataset with task={task} does not exist!"
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
+
+        if task == "train":
+            dataset_starting_row = config["datasetStartingRow"]
+            dataset_ending_row = config["datasetEndingRow"]
+            split = f"train[{dataset_starting_row}:{dataset_ending_row}]"
+        else:
+            split = "test"  # both test_model and verify_model uses test split
+
+        return load_dataset(
+            path=hf_dataset_repo_id, revision=hf_dataset_repo_revision, split=split
+        )
+
+    def _tokenize_dataset(self, dataset, config, task):
+        # TODO: create one central training config file
+
+        # get tokenizer
+        print("Loading tokenizer...")
+        if task == "train" or task == "test":
+            hf_model_repo_id = config["hfModelRepoId"]
+            hf_model_repo_revision = config["hfModelRepoRevision"]
+
+            tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name_or_path=hf_model_repo_id,
+                revision=hf_model_repo_revision,
+            )
+        elif task == "verify":
+            training_round_number = config["roundNumber"]
+            hf_model_repo_id = config["trainingJob"]["hfModelRepoId"]
+            base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
+            base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
+
+            tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name_or_path=hf_model_repo_id
+                if hf_model_repo_id and training_round_number > 1
+                else base_model_repo_id,
+                revision="main"  # uses main tokenizer
+                if hf_model_repo_id and training_round_number > 1
+                else base_model_repo_revision,
+            )
+        else:
+            error_message = f"_tokenize_dataset with task={task} does not exist!"
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
+
+        # create a tokenize function that will tokenize the dataset
+        def tokenize_function(examples):
+            return tokenizer(
+                examples["text"],
+                padding="max_length",
+                truncation=True,
+                # max_length=TOKENIZER_MAX_LENGTH,
+            )
+
+        print("Tokenizing dataset...")
+        tokenized_dataset = dataset.map(tokenize_function, batched=True)
+
+        # Remove the text column because the model does not accept raw text as an input
+        tokenized_dataset = tokenized_dataset.remove_columns(["text"])
+
+        # Rename the label column to labels because
+        # the model expects the argument to be named labels
+        tokenized_dataset = tokenized_dataset.rename_column("label", "labels")
+
+        # Set the format of the dataset to return PyTorch tensors instead of lists
+        tokenized_dataset.set_format("torch")
+
+        return tokenized_dataset
+
+    def _load_model(self, config, task):
+        # setup model cache for training
+        model_cache_for_training_round_step = None
+        if task == "train" or task == "test":
+            training_round_id = config["trainingRound"]["id"]
+            training_round_step_id = config["id"]
+            training_round_directory = (
+                f"{training_round_id}/steps/{training_round_step_id}"
+            )
+            model_cache_for_training_round_step = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+                training_round_directory
+            )
+
+        # select model
+        if task == "train":
+            pretrained_model_name_or_path = config["hfModelRepoId"]
+        elif task == "test":
+            if not model_cache_for_training_round_step:
+                error_message = f"_get_trainer with task={task} requires model_cache_for_training_round_step!"  # noqa
+                LOGGER.error(error_message)
+                raise ValueError(error_message)
+            pretrained_model_name_or_path = model_cache_for_training_round_step
+        elif task == "verify":
+            training_round_id = config["id"]
+            spice_model_round_cache = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+                f"{training_round_id}/"
+            )
+            pretrained_model_name_or_path = spice_model_round_cache
+        else:
+            error_message = f"_load_model with task={task} does not exist!"
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
+
+        # load your model with the number of expected labels:
+        print(f"Loading {task} model...")
+        model = AutoModelForSequenceClassification.from_pretrained(
+            pretrained_model_name_or_path, num_labels=5
+        )
+
+        return model
+
+    def _get_training_arguments(self, output_dir, config, task):
+        training_arguments = TrainingArguments(
+            output_dir=str(output_dir),
+            num_train_epochs=1,
+            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
+        )
+
+        if task == "train":
+            # set to "no", set to "epoch" for eval + train
+            training_arguments.evaluation_strategy = "no"
+            training_arguments.per_device_train_batch_size = config["trainingBatchSize"]
+        elif task == "test":
+            training_arguments.evaluation_strategy = "epoch"
+            training_arguments.per_device_eval_batch_size = config["trainingBatchSize"]
+        elif task == "verify":
+            training_arguments.evaluation_strategy = "epoch"
+            training_arguments.per_device_eval_batch_size = 32
+            training_arguments.save_strategy = "no"
+        else:
+            error_message = f"_get_training_arguments with task={task} does not exist!"
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
+
+        return training_arguments
+
     def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-
-        if config.get("status") == "READY_FOR_PICKUP":
-            self._update_training_round_step(
-                training_round_step_id=training_round_step_id, status="CLAIMED"
-            )
-            config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
-
-        hf_model_repo_id = config["hfModelRepoId"]
-        hf_model_repo_revision = config["hfModelRepoRevision"]
-        hf_dataset_repo_id = config["hfDatasetRepoId"]
-        hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
-        dataset_starting_row = config["datasetStartingRow"]
-        dataset_ending_row = config["datasetEndingRow"]
-        training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
         # create the folder for the new training round
@@ -468,59 +600,17 @@ class Training:
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="DOWNLOADING_DATASET"
         )
+        train_dataset = self._load_dataset(config, "train")
 
-        split_string = f"train[{dataset_starting_row}:{dataset_ending_row}]"
-        train_dataset = load_dataset(
-            path=hf_dataset_repo_id,
-            revision=hf_dataset_repo_revision,
-            split=split_string,
+        # tokenize dataset
+        tokenized_dataset = self._tokenize_dataset(train_dataset, config, "train")
+
+        # load your model with the number of expected labels:
+        model = self._load_model(config, "train")
+
+        training_args = self._get_training_arguments(
+            model_cache_for_training_round, config, "train"
         )
-
-        # get tokenizer from base model bert-base-cased
-        print("Loading tokenizer...")
-        tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=hf_model_repo_id,
-            revision=hf_model_repo_revision,
-        )
-
-        # create a tokenize function that will tokenize the dataset
-        # bert-base-uncased uses a subword tokenizer so the maximum length corresponds
-        # to 512 subword tokens
-        def tokenize_function(examples):
-            return tokenizer(
-                examples["text"],
-                padding="max_length",
-                truncation=True,
-                # max_length=TOKENIZER_MAX_LENGTH,
-            )
-
-        print("Tokenizing dataset...")
-        tokenized_datasets = train_dataset.map(tokenize_function, batched=True)
-
-        # Remove the text column because the model does not accept raw text as an input
-        tokenized_datasets = tokenized_datasets.remove_columns(["text"])
-
-        # Rename the label column to labels because
-        # the model expects the argument to be named labels
-        tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
-
-        # Set the format of the dataset to return PyTorch tensors instead of lists
-        tokenized_datasets.set_format("torch")
-
-        # Load your model with the number of expected labels:
-        print("Loading base model...")
-        model = AutoModelForSequenceClassification.from_pretrained(
-            hf_model_repo_id, num_labels=5
-        )
-
-        training_args = TrainingArguments(
-            output_dir=str(model_cache_for_training_round),
-            evaluation_strategy="no",  # set to "no", set to "epoch" for eval + train
-            num_train_epochs=1,
-            per_device_train_batch_size=training_batch_size,
-            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
-        )
-
         metric = evaluate.load("accuracy")
 
         def compute_metrics(eval_pred):
@@ -537,7 +627,7 @@ class Training:
         trainer = Trainer(
             model=model,
             args=training_args,
-            train_dataset=tokenized_datasets,
+            train_dataset=tokenized_dataset,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
@@ -560,18 +650,6 @@ class Training:
     def test_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
-
-        if config.get("status") == "READY_FOR_PICKUP":
-            self._update_training_round_step(
-                training_round_step_id=training_round_step_id, status="CLAIMED"
-            )
-            config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
-
-        hf_model_repo_id = config["hfModelRepoId"]
-        hf_model_repo_revision = config["hfModelRepoRevision"]
-        hf_dataset_repo_id = config["hfDatasetRepoId"]
-        hf_dataset_repo_revision = config["hfDatasetRepoRevision"]
-        training_batch_size = config["trainingBatchSize"]
         training_round_id = config["trainingRound"]["id"]
 
         # create the folder for the new training round
@@ -587,56 +665,16 @@ class Training:
             training_round_step_id=training_round_step_id,
             status="DOWNLOADING_TESTING_DATASET",
         )
+        test_dataset = self._load_dataset(config, "test")
 
-        test_dataset = load_dataset(
-            path=hf_dataset_repo_id, revision=hf_dataset_repo_revision, split="test"
-        )
+        # tokenize dataset
+        tokenized_dataset = self._tokenize_dataset(test_dataset, config, "test")
 
-        # get tokenizer from base model bert-base-cased
-        print("Loading tokenizer...")
-        tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=hf_model_repo_id,
-            revision=hf_model_repo_revision,
-        )
+        # load your model with the number of expected labels:
+        model = self._load_model(config, "test")
 
-        # create a tokenize function that will tokenize the dataset
-        def tokenize_function(examples):
-            return tokenizer(
-                examples["text"],
-                padding="max_length",
-                truncation=True,
-                # max_length=TOKENIZER_MAX_LENGTH,
-            )
-
-        print("Tokenizing dataset...")
-        tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
-
-        # Remove the text column because the model does not accept raw text as an input
-        tokenized_test_datasets = tokenized_test_datasets.map(
-            tokenize_function, batched=True
-        )
-
-        # Rename the label column to labels because
-        # the model expects the argument to be named labels
-        tokenized_test_datasets = tokenized_test_datasets.rename_column(
-            "label", "labels"
-        )
-
-        # Set the format of the dataset to return PyTorch tensors instead of lists
-        tokenized_test_datasets.set_format("torch")
-
-        # Load your model with the number of expected labels:
-        print("Loading base model...")
-        model = AutoModelForSequenceClassification.from_pretrained(
-            hf_model_repo_id, num_labels=5
-        )
-
-        eval_args = TrainingArguments(
-            output_dir=str(model_cache_for_training_round),
-            evaluation_strategy="epoch",
-            num_train_epochs=1,
-            per_device_eval_batch_size=training_batch_size,
-            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
+        eval_args = self._get_training_arguments(
+            model_cache_for_training_round, config, "test"
         )
 
         metric = evaluate.load("accuracy")
@@ -655,7 +693,7 @@ class Training:
         trainer = Trainer(
             model=model,
             args=eval_args,
-            eval_dataset=tokenized_test_datasets,
+            eval_dataset=tokenized_dataset,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
@@ -699,31 +737,14 @@ class Training:
     def verify_model(self):
         config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
         training_round_id = config["id"]
-
-        if config.get("status") == "READY_FOR_PICKUP":
-            self._update_training_round(
-                training_round_id=training_round_id, status="CLAIMED"
-            )
-            config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
-
         training_round_number = config["roundNumber"]
         training_job_id = config["trainingJob"]["id"]
-        hf_model_repo_id = config["trainingJob"]["hfModelRepoId"]
-        base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
-        base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
-        dataset_repo_id = config["trainingJob"]["baseDatasetRepoId"]
-        dataset_repo_revision = config["trainingJob"]["baseDatasetRepoRevision"]
-        verification_batch_size = 32
 
         # create the folder for the verification round
         # where the step model will be saved
         verification_round_directory = f"{training_round_id}/verification"
         verification_cache_for_training_round = SPICE_MODEL_CACHE_FILEPATH.joinpath(
             verification_round_directory
-        )
-
-        spice_model_round_cache = SPICE_MODEL_CACHE_FILEPATH.joinpath(
-            f"{training_round_id}/"
         )
 
         # get the presigned urls for a round's model + configs
@@ -762,62 +783,16 @@ class Training:
             training_round_id=training_round_id,
             status="DOWNLOADING_VERIFICATION_DATASET",
         )
+        test_dataset = self._load_dataset(config, "verify")
 
-        # We need to actually create validation files here
-        test_dataset = load_dataset(
-            path=dataset_repo_id, revision=dataset_repo_revision, split="test"
-        )
+        # tokenize dataset
+        tokenized_dataset = self._tokenize_dataset(test_dataset, config, "verify")
 
-        # get tokenizer from base model bert-base-cased
-        print("Loading tokenizer...")
-        tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=hf_model_repo_id
-            if hf_model_repo_id and training_round_number > 1
-            else base_model_repo_id,
-            revision="main"
-            if hf_model_repo_id and training_round_number > 1
-            else base_model_repo_revision,
-        )
+        # load your model with the number of expected labels:
+        model = self._load_model(config, "verify")
 
-        # create a tokenize function that will tokenize the dataset
-        def tokenize_function(examples):
-            return tokenizer(
-                examples["text"],
-                padding="max_length",
-                truncation=True,
-                # max_length=TOKENIZER_MAX_LENGTH,
-            )
-
-        print("Tokenizing dataset...")
-        tokenized_test_datasets = test_dataset.map(tokenize_function, batched=True)
-
-        # Remove the text column because the model does not accept raw text as an input
-        tokenized_test_datasets = tokenized_test_datasets.map(
-            tokenize_function, batched=True
-        )
-
-        # Rename the label column to labels because
-        # the model expects the argument to be named labels
-        tokenized_test_datasets = tokenized_test_datasets.rename_column(
-            "label", "labels"
-        )
-
-        # Set the format of the dataset to return PyTorch tensors instead of lists
-        tokenized_test_datasets.set_format("torch")
-
-        # Load your model with the number of expected labels:
-        print("Loading base model...")
-        model = AutoModelForSequenceClassification.from_pretrained(
-            spice_model_round_cache, num_labels=5
-        )
-
-        eval_args = TrainingArguments(
-            output_dir=str(verification_cache_for_training_round),
-            evaluation_strategy="epoch",
-            num_train_epochs=1,
-            per_device_eval_batch_size=verification_batch_size,
-            use_mps_device=torch.backends.mps.is_available(),  # type: ignore
-            save_strategy="no",
+        eval_args = self._get_training_arguments(
+            verification_cache_for_training_round, config, "verify"
         )
 
         metric = evaluate.load("accuracy")
@@ -836,7 +811,7 @@ class Training:
         trainer = Trainer(
             model=model,
             args=eval_args,
-            eval_dataset=tokenized_test_datasets,
+            eval_dataset=tokenized_dataset,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
