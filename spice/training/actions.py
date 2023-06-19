@@ -95,8 +95,7 @@ class ThreadedStatusDetailsCallbackDecorator:
 
             # We set the current thread and start it's activity
             if not self.current_thread:
-                step_end_thread = self._get_threaded_function(function, *args, **kwargs)
-                self.current_thread = step_end_thread
+                self.current_thread = self._get_threaded_function(function, *args, **kwargs)
                 self.current_thread.start()
 
         return wrapper
