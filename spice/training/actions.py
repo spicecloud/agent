@@ -53,16 +53,20 @@ class ThreadedStatusDetailsCallbackDecorator:
         self.is_threaded = is_threaded
         self.current_thread = None
 
-    def __call__(self, cls):
+    def __call__(
+        self,
+        cls,
+        functions_to_decorate=["on_train_begin", "on_step_end", "on_train_end"],
+    ):
         if not self.is_threaded:
             return cls
-
 
         # Wrap functions with defined decorators
         # Example: on_step_end gets wrapped with on_step_end_decorator
         decorated_methods = []
-        for name, value in cls.__dict__.items():
-            if callable(value) and name != "__init__":
+        for name in functions_to_decorate:
+            value = cls.__dict__[name]
+            if callable(value):
                 decorated_method = getattr(self, f"{name}_decorator", None)
                 if decorated_method:
                     decorated_method = decorated_method(value)
@@ -80,7 +84,7 @@ class ThreadedStatusDetailsCallbackDecorator:
                     function, *args, **kwargs
                 )
 
-                on_train_begin_thread.start()
+                self.current_thread.start()
 
         return wrapper
 
@@ -95,7 +99,9 @@ class ThreadedStatusDetailsCallbackDecorator:
 
             # We set the current thread and start it's activity
             if not self.current_thread:
-                self.current_thread = self._get_threaded_function(function, *args, **kwargs)
+                self.current_thread = self._get_threaded_function(
+                    function, *args, **kwargs
+                )
                 self.current_thread.start()
 
         return wrapper
