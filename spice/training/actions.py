@@ -368,7 +368,7 @@ class Training:
         # todo: remove training_round_number
         query = gql(
             """
-            query getAgentRoundPresignedUrls($trainingRoundId: String!) {
+            query getAgentRoundPresignedUrls($trainingRoundId: GlobalID!) {
                 getAgentRoundPresignedUrls(trainingRoundId: $trainingRoundId) {
                     roundModel
                     config
