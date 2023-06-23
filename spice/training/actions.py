@@ -852,6 +852,7 @@ class Training:
         training_round_id = config["id"]
         training_round_number = config["roundNumber"]
         training_job_id = config["trainingJob"]["id"]
+        base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
 
         # create the folder for the verification round
         # where the step model will be saved
@@ -899,7 +900,19 @@ class Training:
         test_dataset = self._load_dataset(config, "verify")
 
         # tokenize dataset
-        tokenized_dataset = self._tokenize_dataset(test_dataset, config, "verify")
+        image_processor = None
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            image_processor, tokenized_dataset = self._process_dataset(
+                test_dataset, config, "verify"
+            )
+        elif base_model_repo_id == "bert-base-uncased":
+            tokenized_dataset = self._tokenize_dataset(test_dataset, config, "verify")
+        else:
+            error_message = (
+                f"test_model has unknown base model: {base_model_repo_id} type"
+            )
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
 
         # load your model with the number of expected labels:
         model = self._load_model(config, "verify")
@@ -921,6 +934,9 @@ class Training:
             status="VERIFYING",
         )
 
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            eval_args.remove_unused_columns = False
+
         trainer = Trainer(
             model=model,
             args=eval_args,
@@ -928,6 +944,9 @@ class Training:
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
+
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            trainer.tokenizer = image_processor
 
         self._update_training_round(
             training_round_id=training_round_id,
