@@ -612,7 +612,7 @@ class Training:
             raise ValueError(error_message)
 
         # Load your model with the number of expected labels:
-        print(f"Loading {task} model...")
+        LOGGER.info(f"Loading {task} model...")
         if base_model_repo_id == "spicecloud/spice-cnn-base":
             model = AutoModelForImageClassification.from_pretrained(
                 pretrained_model_name_or_path,
