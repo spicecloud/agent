@@ -13,7 +13,11 @@ from gql.transport.exceptions import TransportQueryError
 import numpy as np
 import requests
 import torch  # noqa
+from torchvision.transforms import Compose, Normalize, RandomResizedCrop, ToTensor
 from transformers import (  # noqa
+    AutoImageProcessor,
+    AutoModel,
+    AutoModelForImageClassification,
     AutoModelForSequenceClassification,
     AutoTokenizer,
     Trainer,
@@ -315,6 +319,8 @@ class Training:
                             roundNumber
                             trainingJob {
                                 id
+                                baseModelRepoId
+                                baseModelRepoRevision
                             }
                         }
                         statusDetails
@@ -362,7 +368,7 @@ class Training:
         # todo: remove training_round_number
         query = gql(
             """
-            query getAgentRoundPresignedUrls($trainingRoundId: String!) {
+            query getAgentRoundPresignedUrls($trainingRoundId: GlobalID!) {
                 getAgentRoundPresignedUrls(trainingRoundId: $trainingRoundId) {
                     roundModel
                     config
@@ -516,12 +522,78 @@ class Training:
 
         return tokenized_dataset
 
+    def _process_dataset(self, dataset, config, task):
+        # get image processor
+        LOGGER.info("Loading image processor...")
+        if task in ["train", "test"]:
+            hf_model_repo_id = config["hfModelRepoId"]
+            hf_model_repo_revision = config["hfModelRepoRevision"]
+
+            image_processor = AutoImageProcessor.from_pretrained(
+                pretrained_model_name_or_path=hf_model_repo_id,
+                revision=hf_model_repo_revision,
+                trust_remote_code=True,
+            )
+        elif task == "verify":
+            training_round_number = config["roundNumber"]
+            hf_model_repo_id = config["trainingJob"]["hfModelRepoId"]
+            base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
+            base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
+
+            pretrained_model_name_or_path = base_model_repo_id
+            revision = "main"
+            if hf_model_repo_id and training_round_number > 1:
+                pretrained_model_name_or_path = base_model_repo_id
+                revision = base_model_repo_revision
+
+            image_processor = AutoImageProcessor.from_pretrained(
+                pretrained_model_name_or_path=pretrained_model_name_or_path,
+                revision=revision,
+                trust_remote_code=True,
+            )
+        else:
+            error_message = f"_process_dataset with task={task} does not exist!"
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
+
+        normalize = Normalize(
+            mean=image_processor.image_mean, std=image_processor.image_std
+        )
+
+        size = image_processor.size.get("shortest_edge", None)
+        if (
+            not size
+            and image_processor.size.get("height", None)
+            and image_processor.size.get("width", None)
+        ):
+            size = (image_processor.size["height"], image_processor.size["width"])
+        else:
+            message = "size was not set. image_processor did not have keys \
+                shortest_edge, or height and width."
+            LOGGER.error(message)
+            raise Exception(message)
+
+        _transforms = Compose([RandomResizedCrop(size), ToTensor(), normalize])
+
+        def transforms(examples):
+            examples["tensor"] = [_transforms(img) for img in examples["image"]]
+            del examples["image"]
+            return examples
+
+        print("Processing dataset...")
+        dataset = dataset.with_transform(transforms)
+        return image_processor, dataset
+
     def _load_model(self, config, task):
-        # setup model cache for training
+        # Setup model cache for training/testing
         model_cache_for_training_round_step = None
+        base_model_repo_id = None
         if task == "train" or task == "test":
             training_round_id = config["trainingRound"]["id"]
             training_round_step_id = config["id"]
+            base_model_repo_id = config["trainingRound"]["trainingJob"][
+                "baseModelRepoId"
+            ]
             training_round_directory = (
                 f"{training_round_id}/steps/{training_round_step_id}"
             )
@@ -529,7 +601,7 @@ class Training:
                 training_round_directory
             )
 
-        # select model
+        # Select pretrained model
         if task == "train":
             pretrained_model_name_or_path = config["hfModelRepoId"]
         elif task == "test":
@@ -540,6 +612,7 @@ class Training:
             pretrained_model_name_or_path = model_cache_for_training_round_step
         elif task == "verify":
             training_round_id = config["id"]
+            base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
             spice_model_round_cache = SPICE_MODEL_CACHE_FILEPATH.joinpath(
                 f"{training_round_id}/"
             )
@@ -549,11 +622,24 @@ class Training:
             LOGGER.error(error_message)
             raise ValueError(error_message)
 
-        # load your model with the number of expected labels:
-        print(f"Loading {task} model...")
-        model = AutoModelForSequenceClassification.from_pretrained(
-            pretrained_model_name_or_path, num_labels=5
-        )
+        # Load your model with the number of expected labels:
+        LOGGER.info(f"Loading {task} model...")
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            model = AutoModelForImageClassification.from_pretrained(
+                pretrained_model_name_or_path,
+                num_labels=10,
+                trust_remote_code=True,
+            )
+        elif base_model_repo_id == "bert-base-uncased":
+            model = AutoModelForSequenceClassification.from_pretrained(
+                pretrained_model_name_or_path, num_labels=5
+            )
+        else:
+            error_message = (
+                f"_load_model has unknown base model: {base_model_repo_id} type"
+            )
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
 
         return model
 
@@ -586,6 +672,7 @@ class Training:
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
         training_round_id = config["trainingRound"]["id"]
+        base_model_repo_id = config["trainingRound"]["trainingJob"]["baseModelRepoId"]
 
         # create the folder for the new training round
         # where the step model will be saved
@@ -603,7 +690,19 @@ class Training:
         train_dataset = self._load_dataset(config, "train")
 
         # tokenize dataset
-        tokenized_dataset = self._tokenize_dataset(train_dataset, config, "train")
+        image_processor = None
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            image_processor, tokenized_dataset = self._process_dataset(
+                train_dataset, config, "train"
+            )
+        elif base_model_repo_id == "bert-base-uncased":
+            tokenized_dataset = self._tokenize_dataset(train_dataset, config, "train")
+        else:
+            error_message = (
+                f"train_model has unknown base model: {base_model_repo_id} type"
+            )
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
 
         # load your model with the number of expected labels:
         model = self._load_model(config, "train")
@@ -624,6 +723,9 @@ class Training:
             training_round_step_id=training_round_step_id,
         )
 
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            training_args.remove_unused_columns = False
+
         trainer = Trainer(
             model=model,
             args=training_args,
@@ -631,6 +733,9 @@ class Training:
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
+
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            trainer.tokenizer = image_processor
 
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="TRAINING"
@@ -651,6 +756,7 @@ class Training:
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
         training_round_id = config["trainingRound"]["id"]
+        base_model_repo_id = config["trainingRound"]["trainingJob"]["baseModelRepoId"]
 
         # create the folder for the new training round
         # where the step model will be saved
@@ -668,7 +774,19 @@ class Training:
         test_dataset = self._load_dataset(config, "test")
 
         # tokenize dataset
-        tokenized_dataset = self._tokenize_dataset(test_dataset, config, "test")
+        image_processor = None
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            image_processor, tokenized_dataset = self._process_dataset(
+                test_dataset, config, "test"
+            )
+        elif base_model_repo_id == "bert-base-uncased":
+            tokenized_dataset = self._tokenize_dataset(test_dataset, config, "test")
+        else:
+            error_message = (
+                f"test_model has unknown base model: {base_model_repo_id} type"
+            )
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
 
         # load your model with the number of expected labels:
         model = self._load_model(config, "test")
@@ -690,6 +808,9 @@ class Training:
             status="TESTING",
         )
 
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            eval_args.remove_unused_columns = False
+
         trainer = Trainer(
             model=model,
             args=eval_args,
@@ -697,6 +818,9 @@ class Training:
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
+
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            trainer.tokenizer = image_processor
 
         self._update_training_round_step(
             training_round_step_id=training_round_step_id,
@@ -739,6 +863,7 @@ class Training:
         training_round_id = config["id"]
         training_round_number = config["roundNumber"]
         training_job_id = config["trainingJob"]["id"]
+        base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
 
         # create the folder for the verification round
         # where the step model will be saved
@@ -786,7 +911,19 @@ class Training:
         test_dataset = self._load_dataset(config, "verify")
 
         # tokenize dataset
-        tokenized_dataset = self._tokenize_dataset(test_dataset, config, "verify")
+        image_processor = None
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            image_processor, tokenized_dataset = self._process_dataset(
+                test_dataset, config, "verify"
+            )
+        elif base_model_repo_id == "bert-base-uncased":
+            tokenized_dataset = self._tokenize_dataset(test_dataset, config, "verify")
+        else:
+            error_message = (
+                f"test_model has unknown base model: {base_model_repo_id} type"
+            )
+            LOGGER.error(error_message)
+            raise ValueError(error_message)
 
         # load your model with the number of expected labels:
         model = self._load_model(config, "verify")
@@ -808,6 +945,9 @@ class Training:
             status="VERIFYING",
         )
 
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            eval_args.remove_unused_columns = False
+
         trainer = Trainer(
             model=model,
             args=eval_args,
@@ -815,6 +955,9 @@ class Training:
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
+
+        if base_model_repo_id == "spicecloud/spice-cnn-base":
+            trainer.tokenizer = image_processor
 
         self._update_training_round(
             training_round_id=training_round_id,

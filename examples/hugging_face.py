@@ -1,3 +1,5 @@
+import logging
+
 from datasets import load_dataset
 import evaluate
 import numpy as np
@@ -7,6 +9,10 @@ from tqdm.auto import tqdm
 from spice.client import Spice
 
 # needs to be imported before transformers to set PYTORCH_ENABLE_MPS_FALLBACK=1
+
+
+LOGGER = logging.getLogger(__name__)
+
 
 spice = Spice()
 
@@ -103,11 +109,18 @@ def example_preprocess_image_data():
     image_processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
 
     # determine the actual size the image processor expects
-    size = (
-        image_processor.size["shortest_edge"]
-        if "shortest_edge" in image_processor.size
-        else (image_processor.size["height"], image_processor.size["width"])
-    )
+    size = image_processor.size.get("shortest_edge", None)
+    if (
+        not size
+        and image_processor.size.get("height", None)
+        and image_processor.size.get("width", None)
+    ):
+        size = (image_processor.size["height"], image_processor.size["width"])
+    else:
+        message = "size was not set. image_processor did not have keys shortest_edge, \
+            or height and width."
+        LOGGER.error(message)
+        raise Exception(message)
 
     # define the transforms to apply to each image
     _transforms = Compose(
