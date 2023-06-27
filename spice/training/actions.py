@@ -547,8 +547,8 @@ class Training:
                 revision = base_model_repo_revision
 
             image_processor = AutoImageProcessor.from_pretrained(
-                pretrained_model_name_or_path= pretrained_model_name_or_path,
-                revision=revison,
+                pretrained_model_name_or_path=pretrained_model_name_or_path,
+                revision=revision,
                 trust_remote_code=True,
             )
         else:
@@ -559,11 +559,20 @@ class Training:
         normalize = Normalize(
             mean=image_processor.image_mean, std=image_processor.image_std
         )
-        size = (
-            image_processor.size["shortest_edge"]
-            if "shortest_edge" in image_processor.size
-            else (image_processor.size["height"], image_processor.size["width"])
-        )
+
+        size = image_processor.size.get("shortest_edge", None)
+        if (
+            not size
+            and image_processor.size.get("height", None)
+            and image_processor.size.get("width", None)
+        ):
+            size = (image_processor.size["height"], image_processor.size["width"])
+        else:
+            message = "size was not set. image_processor did not have keys \
+                shortest_edge, or height and width."
+            LOGGER.error(message)
+            raise Exception(message)
+
         _transforms = Compose([RandomResizedCrop(size), ToTensor(), normalize])
 
         def transforms(examples):
