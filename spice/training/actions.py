@@ -540,13 +540,15 @@ class Training:
             base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
             base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
 
+            pretrained_model_name_or_path = base_model_repo_id
+            revision = "main"
+            if hf_model_repo_id and training_round_number > 1:
+                pretrained_model_name_or_path = base_model_repo_id
+                revision = base_model_repo_revision
+
             image_processor = AutoImageProcessor.from_pretrained(
-                pretrained_model_name_or_path=hf_model_repo_id
-                if hf_model_repo_id and training_round_number > 1
-                else base_model_repo_id,
-                revision="main"  # uses main tokenizer
-                if hf_model_repo_id and training_round_number > 1
-                else base_model_repo_revision,
+                pretrained_model_name_or_path= pretrained_model_name_or_path,
+                revision=revison,
                 trust_remote_code=True,
             )
         else:
