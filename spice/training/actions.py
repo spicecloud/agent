@@ -504,7 +504,7 @@ class Training:
                 examples["text"],
                 padding="max_length",
                 truncation=True,
-                # max_length=TOKENIZER_MAX_LENGTH,
+                max_length=TOKENIZER_MAX_LENGTH,
             )
 
         print("Tokenizing dataset...")
