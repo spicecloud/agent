@@ -13,7 +13,7 @@ from gql.transport.exceptions import TransportQueryError
 import numpy as np
 import requests
 import torch  # noqa
-from torchvision.transforms import RandomResizedCrop, Compose, Normalize, ToTensor
+from torchvision.transforms import Compose, Normalize, RandomResizedCrop, ToTensor
 from transformers import (  # noqa
     AutoImageProcessor,
     AutoModel,
@@ -524,7 +524,7 @@ class Training:
 
     def _process_dataset(self, dataset, config, task):
         # get image processor
-        LOGGGER.info("Loading image processor...")
+        LOGGER.info("Loading image processor...")
         if task in ["train", "test"]:
             hf_model_repo_id = config["hfModelRepoId"]
             hf_model_repo_revision = config["hfModelRepoRevision"]
