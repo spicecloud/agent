@@ -525,7 +525,7 @@ class Training:
     def _process_dataset(self, dataset, config, task):
         # get image processor
         LOGGGER.info("Loading image processor...")
-        if task == "train" or task == "test":
+        if task in ["train", "test"]:
             hf_model_repo_id = config["hfModelRepoId"]
             hf_model_repo_revision = config["hfModelRepoRevision"]
 
