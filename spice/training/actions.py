@@ -520,7 +520,7 @@ class Training:
         # Set the format of the dataset to return PyTorch tensors instead of lists
         tokenized_dataset.set_format("torch")
 
-        return tokenized_dataset
+        return tokenizer, tokenized_dataset
 
     def _process_dataset(self, dataset, config, task):
         # get image processor
@@ -690,13 +690,15 @@ class Training:
         train_dataset = self._load_dataset(config, "train")
 
         # tokenize dataset
-        image_processor = None
+        tokenizer = None
         if base_model_repo_id == "spicecloud/spice-cnn-base":
-            image_processor, tokenized_dataset = self._process_dataset(
+            tokenizer, tokenized_dataset = self._process_dataset(
                 train_dataset, config, "train"
             )
         elif base_model_repo_id == "bert-base-uncased":
-            tokenized_dataset = self._tokenize_dataset(train_dataset, config, "train")
+            tokenizer, tokenized_dataset = self._tokenize_dataset(
+                train_dataset, config, "train"
+            )
         else:
             error_message = (
                 f"train_model has unknown base model: {base_model_repo_id} type"
@@ -730,12 +732,10 @@ class Training:
             model=model,
             args=training_args,
             train_dataset=tokenized_dataset,
+            tokenizer=tokenizer,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
-
-        if base_model_repo_id == "spicecloud/spice-cnn-base":
-            trainer.tokenizer = image_processor
 
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="TRAINING"
@@ -774,13 +774,15 @@ class Training:
         test_dataset = self._load_dataset(config, "test")
 
         # tokenize dataset
-        image_processor = None
+        tokenizer = None
         if base_model_repo_id == "spicecloud/spice-cnn-base":
-            image_processor, tokenized_dataset = self._process_dataset(
+            tokenizer, tokenized_dataset = self._process_dataset(
                 test_dataset, config, "test"
             )
         elif base_model_repo_id == "bert-base-uncased":
-            tokenized_dataset = self._tokenize_dataset(test_dataset, config, "test")
+            tokenizer, tokenized_dataset = self._tokenize_dataset(
+                test_dataset, config, "test"
+            )
         else:
             error_message = (
                 f"test_model has unknown base model: {base_model_repo_id} type"
@@ -815,12 +817,10 @@ class Training:
             model=model,
             args=eval_args,
             eval_dataset=tokenized_dataset,
+            tokenizer=tokenizer,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
-
-        if base_model_repo_id == "spicecloud/spice-cnn-base":
-            trainer.tokenizer = image_processor
 
         self._update_training_round_step(
             training_round_step_id=training_round_step_id,
@@ -911,13 +911,15 @@ class Training:
         test_dataset = self._load_dataset(config, "verify")
 
         # tokenize dataset
-        image_processor = None
+        tokenizer = None
         if base_model_repo_id == "spicecloud/spice-cnn-base":
-            image_processor, tokenized_dataset = self._process_dataset(
+            tokenizer, tokenized_dataset = self._process_dataset(
                 test_dataset, config, "verify"
             )
         elif base_model_repo_id == "bert-base-uncased":
-            tokenized_dataset = self._tokenize_dataset(test_dataset, config, "verify")
+            tokenizer, tokenized_dataset = self._tokenize_dataset(
+                test_dataset, config, "verify"
+            )
         else:
             error_message = (
                 f"test_model has unknown base model: {base_model_repo_id} type"
@@ -952,12 +954,10 @@ class Training:
             model=model,
             args=eval_args,
             eval_dataset=tokenized_dataset,
+            tokenizer=tokenizer,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
         )
-
-        if base_model_repo_id == "spicecloud/spice-cnn-base":
-            trainer.tokenizer = image_processor
 
         self._update_training_round(
             training_round_id=training_round_id,
