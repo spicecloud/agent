@@ -74,30 +74,25 @@ class Worker:
         LOGGER.info(" [*] Processing message.")
         data = json.loads(body.decode("utf-8"))
 
-        run_id = data.get("run_id", None)  # for inference
-        model = data.get("model", None)  # for inference
-        new_input = data.get("input", None)  # for inference
-
+        inference_job_id = data.get("inference_job_id", None)
         training_round_step_id = data.get("training_round_step_id", None)
         training_round_id = data.get("training_round_id", None)
 
-        if not run_id and not training_round_step_id and not training_round_id:
+        if (
+            not inference_job_id
+            and not training_round_step_id
+            and not training_round_id
+        ):
             raise Exception(
-                f'No run_id or training_round_step_id or training_round_id found in message body: {body.decode("utf-8")}'  # noqa
+                f'No inference_job_id or training_round_step_id or training_round_id found in message body: {body.decode("utf-8")}'  # noqa
             )
 
-        if run_id:
-            if not new_input:
-                raise Exception(
-                    f'No input found in message body: {body.decode("utf-8")}'
-                )
-            if not model:
-                raise Exception(
-                    f'No model found in message body: {body.decode("utf-8")}'
-                )
-            self.spice.inference.run_pipeline(
-                run_id=run_id, model=model, new_input=new_input
+        if inference_job_id:
+            result = self.spice.inference._update_inference_job(
+                inference_job_id=inference_job_id, status="CLAIMED"
             )
+            self.spice.inference.run_pipeline(inference_job_id=inference_job_id)
+            LOGGER.info(" [*] Completed inference job.")
 
         if training_round_id:
             result = self.spice.training._update_training_round(
@@ -118,10 +113,10 @@ class Worker:
         else:
             LOGGER.info(" [*] Channel closed already. Cannot ack message.")
 
-        LOGGER.info(" [*] Stopping worker...")
-        if self.channel:
-            self.channel.stop_consuming()
-            self.channel.close()
+        # LOGGER.info(" [*] Stopping worker...")
+        # if self.channel:
+        #     self.channel.stop_consuming()
+        #     self.channel.close()
 
     def _create_channel(self):
         credentials = pika.PlainCredentials(
