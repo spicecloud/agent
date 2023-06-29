@@ -9,6 +9,8 @@ from boto3.s3.transfer import TransferConfig
 import botocore.exceptions
 from gql import gql
 
+from spice.graphql.sdk import create_requests_session
+
 
 class ProgressPercentage(object):
     def __init__(self, filepath: Path) -> None:
@@ -103,7 +105,7 @@ class Uploader:
         result = self.spice.session.execute(mutation, variable_values=variables)
         return result
 
-    def upload_file(
+    def upload_file_direct(
         self,
         bucket_name: str,
         key: str,
@@ -193,3 +195,17 @@ class Uploader:
 
         print("")  # print out a newline
         self._update_file_status(file_id=file_id, is_uploading=False, is_complete=True)
+
+    def upload_file_via_api(self, path: Path):
+        operations = """{ "query": "mutation uploadFile($input: UploadFileInput!) { uploadFile(input: $input) { ... on File { id } } }", "variables": { "input": { "fileObject": null } } }"""  # noqa
+        body = {
+            "operations": ("", operations),
+            "map": ("", '{"fileObject": ["variables.input.fileObject"]}'),
+            "fileObject": (path.name, open(path, "rb")),
+        }
+
+        session = create_requests_session(self.spice.host_config)
+        transport = self.spice.host_config.get("transport")
+        url = f"{transport}://{self.spice.host}/"
+        response = session.post(url, files=body)
+        return response

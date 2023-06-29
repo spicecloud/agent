@@ -431,7 +431,7 @@ class Training:
                     file_checksum=file_checksum,
                     location=f"s3://{bucket_key}",
                 )
-                self.spice.uploader.upload_file(
+                self.spice.uploader.upload_file_direct(
                     bucket_name=MODEL_BUCKET_NAME,
                     key=bucket_key,
                     filepath=file,
@@ -983,7 +983,7 @@ class Training:
                     location=f"s3://{bucket_key}",
                 )
 
-                self.spice.uploader.upload_file(
+                self.spice.uploader.upload_file_direct(
                     bucket_name=MODEL_BUCKET_NAME,
                     key=bucket_key,
                     filepath=file,
