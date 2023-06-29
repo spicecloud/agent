@@ -193,8 +193,8 @@ class Hardware:
         variables = {"input": input}
         try:
             result = self.spice.session.execute(mutation, variable_values=variables)
+            return result
         except client_exceptions.ClientConnectorError:
             config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
             if config.get("status") in self.spice.worker.ACTIVE_STATUSES:
                 return None
-        return result
