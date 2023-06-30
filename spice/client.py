@@ -5,8 +5,7 @@ import sys
 
 import sentry_sdk
 from sentry_sdk import set_user
-import torch  # noqa
-from torch.mps import empty_cache
+from torch.mps import empty_cache as mps_empty_cache
 
 from spice.__version__ import __version__
 from spice.auth.actions import Auth
@@ -22,7 +21,6 @@ from spice.worker.actions import Worker
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import torch  # noqa
-
 
 class Spice:
     def __init__(self, host: str = "api.spice.cloud", DEBUG: bool = False) -> None:
@@ -84,7 +82,7 @@ class Spice:
         # https://pytorch.org/docs/master/notes/mps.html
         if os_family == "Darwin" and torch.backends.mps.is_available():  # type: ignore
             device = torch.device("mps")
-            empty_cache()
+            mps_empty_cache()
             if self.DEBUG:
                 print("Using MPS device.")
         else:
@@ -101,6 +99,7 @@ class Spice:
 
         if device is None and torch.cuda.is_available():
             device = torch.device("cuda:0")
+            torch.cuda.empty_cache()
             if self.DEBUG:
                 print("Using CUDA device.")
         else:

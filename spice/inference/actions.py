@@ -7,13 +7,13 @@ from typing import Dict, Optional
 from diffusers import StableDiffusionPipeline
 from gql import gql
 from gql.transport.exceptions import TransportQueryError
+from torch.mps import empty_cache as mps_empty_cache
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-
 import torch  # noqa
 import transformers  # noqa
-from transformers import pipeline, set_seed  # noqa
+from transformers import pipeline  # noqa
 from transformers.pipelines.base import PipelineException  # noqa
 
 LOGGER = logging.getLogger(__name__)
@@ -118,6 +118,11 @@ class Inference:
 
         LOGGER.info(f""" [*] Model: {hf_model_repo_id}.""")
         LOGGER.info(f""" [*] Text Input: '{text_input}'""")
+
+        if torch.backends.mps.is_available():
+            mps_empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         response = None
         try:
