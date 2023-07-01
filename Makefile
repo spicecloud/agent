@@ -23,6 +23,12 @@ lint: ## Lint Python Files
 format: ## Format Python Files
 	@poetry run ruff check --fix .
 
+build: ## Build
+	@poetry build
+
+publish: ## Publish to PyPi
+	@poetry publish
+
 setup-git-hooks: ## Setup Git Hook
 	@echo "Setting up Git hooks..."
 	cp .git-hooks/pre-commit .git/hooks/pre-commit
