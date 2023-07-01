@@ -52,5 +52,8 @@ jobs:
         run: |
           make build
       - name: Run Publish
+        env:
+          POETRY_PYPI_TOKEN_PYPI: ${{ steps.mint-token.outputs.api-token }}
         run: |
-          POETRY_PYPI_TOKEN_PYPI=${{ steps.mint-token.outputs.api-token }} make publish
+          poetry config pypi-token.pypi $POETRY_PYPI_TOKEN_PYPI
+          poetry publish
