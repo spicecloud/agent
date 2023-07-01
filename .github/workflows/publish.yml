@@ -21,9 +21,26 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+      - name: mint API token
+        id: mint-token
+        run: |
+          # retrieve the ambient OIDC token
+          resp=$(curl -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=pypi")
+          oidc_token=$(jq '.value' <<< "${resp}")
+
+          # exchange the OIDC token for an API token
+          resp=$(curl -X POST https://pypi.org/_/oidc/github/mint-token -d "{\"token\": \"${oidc_token}\"}")
+          api_token=$(jq '.token' <<< "${resp}")
+
+          # mask the newly minted API token, so that we don't accidentally leak it
+          echo "::add-mask::${api_token}"
+
+          # see the next step in the workflow for an example of using this step output
+          echo "api-token=${api_token}" >> "${GITHUB_OUTPUT}"
       - name: Setup CI
         run: |
           make setup-ci
@@ -32,4 +49,4 @@ jobs:
           make build
       - name: Run Publish
         run: |
-          make publish
+          POETRY_PYPI_TOKEN_PYPI=${{ steps.mint-token.outputs.api-token }} make publish
