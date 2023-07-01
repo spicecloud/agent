@@ -20,6 +20,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - name: Setup CI
+        run: |
+          make setup-ci
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
@@ -43,9 +46,6 @@ jobs:
 
           # see the next step in the workflow for an example of using this step output
           echo "api-token=${api_token}" >> "${GITHUB_OUTPUT}"
-      - name: Setup CI
-        run: |
-          make setup-ci
       - name: Run Build
         run: |
           make build
