@@ -6,7 +6,7 @@ import numpy as np
 from torchvision.transforms import ColorJitter, Compose, RandomResizedCrop
 from tqdm.auto import tqdm
 
-from spice.client import Spice
+from spice_agent.client import Spice
 
 # needs to be imported before transformers to set PYTORCH_ENABLE_MPS_FALLBACK=1
 

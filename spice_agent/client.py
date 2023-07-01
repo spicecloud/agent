@@ -7,20 +7,21 @@ import sentry_sdk
 from sentry_sdk import set_user
 from torch.mps import empty_cache as mps_empty_cache
 
-from spice.__version__ import __version__
-from spice.auth.actions import Auth
-from spice.daemons.actions import Daemons
-from spice.graphql.sdk import create_session
-from spice.hardware.actions import Hardware
-from spice.inference.actions import Inference
-from spice.training.actions import Training
-from spice.uploader.actions import Uploader
-from spice.utils.config import read_config_file
-from spice.worker.actions import Worker
+from spice_agent.__version__ import __version__
+from spice_agent.auth.actions import Auth
+from spice_agent.daemons.actions import Daemons
+from spice_agent.graphql.sdk import create_session
+from spice_agent.hardware.actions import Hardware
+from spice_agent.inference.actions import Inference
+from spice_agent.training.actions import Training
+from spice_agent.uploader.actions import Uploader
+from spice_agent.utils.config import read_config_file
+from spice_agent.worker.actions import Worker
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import torch  # noqa
+
 
 class Spice:
     def __init__(self, host: str = "api.spice.cloud", DEBUG: bool = False) -> None:

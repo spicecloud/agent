@@ -3,8 +3,8 @@ import webbrowser
 
 import click
 
-from spice.auth.actions import Auth
-from spice.client import Spice
+from spice_agent.auth.actions import Auth
+from spice_agent.client import Spice
 
 from ..utils.config import SPICE_HOSTS_FILEPATH
 from ..utils.printer import print_result

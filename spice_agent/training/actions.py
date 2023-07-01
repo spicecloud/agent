@@ -24,7 +24,7 @@ from transformers import (  # noqa
     TrainingArguments,
 )
 
-from spice.utils.config import (
+from spice_agent.utils.config import (
     HF_HUB_DIRECTORY,
     SPICE_MODEL_CACHE_FILEPATH,
     SPICE_ROUND_VERIFICATION_FILEPATH,

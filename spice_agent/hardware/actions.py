@@ -8,7 +8,7 @@ from typing import Dict
 from aiohttp import client_exceptions
 from gql import gql
 
-from spice.utils.config import (
+from spice_agent.utils.config import (
     SPICE_TRAINING_FILEPATH,
     read_config_file,
     update_config_file,

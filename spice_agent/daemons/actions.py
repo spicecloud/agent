@@ -1,6 +1,6 @@
 import platform
 
-from spice.daemons.launch_agents import (
+from spice_agent.daemons.launch_agents import (
     full_launch_agent_install,
     full_launch_agent_uninstall,
     start_launch_agent,

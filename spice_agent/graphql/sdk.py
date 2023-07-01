@@ -4,7 +4,7 @@ from gql import Client
 from gql.transport.aiohttp import AIOHTTPTransport
 import requests
 
-from spice.__version__ import __version__
+from spice_agent.__version__ import __version__
 
 
 def create_session(

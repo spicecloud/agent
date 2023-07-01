@@ -46,7 +46,7 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-spice = "agent.cli:cli"
+spice = "spice_agent.cli:cli"
 
 [tool.black]
 target-version = ["py311",]

@@ -8,7 +8,7 @@ import pika
 from pika.exceptions import AMQPConnectionError, ConnectionClosedByBroker
 from retry import retry
 
-from spice.utils.config import (
+from spice_agent.utils.config import (
     SPICE_ROUND_VERIFICATION_FILEPATH,
     SPICE_TRAINING_FILEPATH,
     read_config_file,

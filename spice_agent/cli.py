@@ -3,8 +3,8 @@ import sys
 
 import click
 
-from spice.__version__ import __version__
-from spice.client import Spice
+from spice_agent.__version__ import __version__
+from spice_agent.client import Spice
 
 from .auth.commands import config_command, whoami_command
 from .daemons.commands import cli as daemons_cli

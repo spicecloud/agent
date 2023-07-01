@@ -9,7 +9,7 @@ from boto3.s3.transfer import TransferConfig
 import botocore.exceptions
 from gql import gql
 
-from spice.graphql.sdk import create_requests_session
+from spice_agent.graphql.sdk import create_requests_session
 
 
 class ProgressPercentage(object):
