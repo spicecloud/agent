@@ -96,3 +96,11 @@ def start_service():
     except subprocess.CalledProcessError as exception:
         print("start_service: ", exception)
         return False
+
+
+def full_service_install():
+    stop_service()
+    disable_service()
+    populate_service_file()
+    enable_service()
+    start_service()
