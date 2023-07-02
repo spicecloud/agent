@@ -17,9 +17,8 @@ SPICE_AGENT_LOGS_FILEPATH = Path(HOME_DIRECTORY / ".cache" / "spice" / SPICE_AGE
 
 def stop_service():
     try:
-        stop_existing_service = f"systemctl --user stop {SPICE_AGENT_SERVICE}"
-        is_active = is_service_active()
-        if is_active:
+        if is_service_active():
+            stop_existing_service = f"systemctl --user stop {SPICE_AGENT_SERVICE}"
             subprocess.check_output(stop_existing_service.split(" "))
         return True
     except subprocess.CalledProcessError as exception:
@@ -41,11 +40,22 @@ def is_service_active():
 
 def disable_service():
     try:
-        disable_existing_service = f"systemctl --user disable {SPICE_AGENT_SERVICE}"
-        subprocess.check_output(disable_existing_service.split(" "))
+        if is_service_enabled():
+            disable_existing_service = f"systemctl --user disable {SPICE_AGENT_SERVICE}"
+            subprocess.check_output(disable_existing_service.split(" "))
         return True
     except subprocess.CalledProcessError as exception:
         print("disable_service: ", exception)
+        return False
+
+
+def is_service_enabled():
+    try:
+        is_service_active = f"systemctl --user show {SPICE_AGENT_SERVICE} -p UnitFileState --value"  # noqa
+        output = subprocess.check_output(is_service_active.split(" ")).decode().strip()
+        return output == "enabled"
+    except subprocess.CalledProcessError as exception:
+        print("is_service_enabled: ", exception)
         return False
 
 
