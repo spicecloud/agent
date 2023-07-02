@@ -23,23 +23,13 @@ def stop_service():
         return False
 
 
-def remove_service():
+def disable_service():
     try:
-        remove_existing_service = f"systemctl --user disable {SPICE_AGENT_SERVICE}"
-        subprocess.check_output(remove_existing_service.split(" "))
+        disable_existing_service = f"systemctl --user disable {SPICE_AGENT_SERVICE}"
+        subprocess.check_output(disable_existing_service.split(" "))
         return True
     except subprocess.CalledProcessError as exception:
-        print("remove_service: ", exception)
-        return False
-
-
-def start_service():
-    try:
-        start_new_service = f"systemctl --user start {SPICE_AGENT_SERVICE}"
-        subprocess.check_output(start_new_service.split(" "))
-        return True
-    except subprocess.CalledProcessError as exception:
-        print("start_service: ", exception)
+        print("disable_service: ", exception)
         return False
 
 
@@ -73,6 +63,7 @@ def populate_service_file():
         print(f"populate_service_file: {exception}")
 
     SPICE_AGENT_SERVICE_FILEPATH.chmod(0o644)
+    verify_service_file()
 
 
 def verify_service_file():
@@ -84,4 +75,14 @@ def verify_service_file():
         return True
     except subprocess.CalledProcessError as exception:
         print("verify_service_file: ", exception)
+        return False
+
+
+def start_service():
+    try:
+        start_new_service = f"systemctl --user start {SPICE_AGENT_SERVICE}"
+        subprocess.check_output(start_new_service.split(" "))
+        return True
+    except subprocess.CalledProcessError as exception:
+        print("start_service: ", exception)
         return False
