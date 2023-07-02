@@ -104,3 +104,10 @@ def full_service_install():
     populate_service_file()
     enable_service()
     start_service()
+
+
+def full_service_uninstall():
+    stop_service()
+    disable_service()
+    if SPICE_AGENT_SERVICE_FILEPATH.exists():
+        SPICE_AGENT_SERVICE_FILEPATH.unlink()
