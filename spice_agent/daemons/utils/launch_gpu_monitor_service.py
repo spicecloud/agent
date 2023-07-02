@@ -2,7 +2,6 @@ import configparser
 import subprocess
 from pathlib import Path
 
-from spice_agent.daemons.utils import gpu_monitor
 
 HOME_DIRECTORY = Path.home()
 
