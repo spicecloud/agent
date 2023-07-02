@@ -59,3 +59,12 @@ def log_daemon_command(context):
     spice = context.obj.get("SPICE")
     result = spice.daemons.logs()
     print_result(message=result, context=context)
+
+
+@cli.command("auto")
+@click.pass_context
+def auto_daemon_command(context):
+    """Automates start/stop for spice Daemon"""
+    spice = context.obj.get("SPICE")
+    result = spice.daemons.auto()
+    print_result(message=result, context=context)

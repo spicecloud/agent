@@ -8,13 +8,9 @@ from spice_agent.daemons.launch_agents import (
     view_launch_agent_logs,
 )
 
-from spice_agent.daemons.launch_service import (
-    full_service_install,
-    full_service_uninstall,
-    start_service,
-    stop_service,
-    view_service_logs,
-)
+from spice_agent.daemons import launch_service
+from spice_agent.daemons.utils import launch_gpu_monitor_service
+from spice_agent.daemons.utils.gpu_monitor import update_service_from_gpu_monitor
 
 
 class Daemons:
@@ -28,7 +24,7 @@ class Daemons:
             full_launch_agent_install()
         elif self.os_family == "Linux":
             if "WSL2" in platform.platform():
-                full_service_install()
+                launch_service.full_service_install()
             else:
                 print("Not Implemented")
         elif self.os_family == "Windows":
@@ -41,7 +37,7 @@ class Daemons:
             full_launch_agent_uninstall()
         elif self.os_family == "Linux":
             if "WSL2" in platform.platform():
-                full_service_uninstall()
+                launch_service.full_service_uninstall()
             else:
                 print("Not Implemented")
         elif self.os_family == "Windows":
@@ -54,7 +50,7 @@ class Daemons:
             result = stop_launch_agent()
         elif self.os_family == "Linux":
             if "WSL2" in platform.platform():
-                stop_service()
+                launch_service.stop_service()
             else:
                 print("Not Implemented")
         elif self.os_family == "Windows":
@@ -67,7 +63,7 @@ class Daemons:
             result = start_launch_agent()
         elif self.os_family == "Linux":
             if "WSL2" in platform.platform():
-                start_service()
+                launch_service.start_service()
             else:
                 print("Not Implemented")
         elif self.os_family == "Windows":
@@ -79,8 +75,31 @@ class Daemons:
             view_launch_agent_logs()
         elif self.os_family == "Linux":
             if "WSL2" in platform.platform():
-                view_service_logs()
+                launch_service.view_service_logs()
             else:
                 print("Not Implemented")
         elif self.os_family == "Windows":
             print("Not Implemented")
+
+    def auto(self):
+        """
+        Launches gpu monitoring service that automatically turns on/off
+        the spice agent daemon for user convenience. Thresholds can be found in
+        gpu_monitor.py.
+        """
+        if self.os_family == "Darwin":
+            raise NotImplementedError()
+        elif self.os_family == "Linux":
+            if "WSL2" in platform.platform():
+                pass
+            else:
+                raise NotImplementedError()
+        elif self.os_family == "Windows":
+            raise NotImplementedError()
+
+        # Install gpu_monitor service
+        if not launch_gpu_monitor_service.is_service_enabled():
+            launch_gpu_monitor_service.full_service_install()
+
+        # Updates spice daemon using gpu monitor
+        update_service_from_gpu_monitor()
