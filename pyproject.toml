@@ -24,6 +24,7 @@ scikit-learn = "^1.2.2"
 accelerate = "^0.20.3"
 torchvision = "^0.15.2"
 diffusers = "^0.17.1"
+outdated = "^0.2.2"
 
 [tool.poetry.dev-dependencies]
 ruff = "^0.0.275"

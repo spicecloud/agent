@@ -16,6 +16,7 @@ from spice_agent.inference.actions import Inference
 from spice_agent.training.actions import Training
 from spice_agent.uploader.actions import Uploader
 from spice_agent.utils.config import read_config_file
+from spice_agent.utils.version import update_if_outdated
 from spice_agent.worker.actions import Worker
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -25,6 +26,7 @@ import torch  # noqa
 
 class Spice:
     def __init__(self, host: str = "api.spice.cloud", DEBUG: bool = False) -> None:
+        update_if_outdated()
         self.host = host
         self.DEBUG = DEBUG
 

@@ -56,6 +56,17 @@ def load_launch_agent():
         return False
 
 
+def create_stdout_file():
+    if not SPICE_LAUNCH_AGENT_LOGS.exists():
+        SPICE_LAUNCH_AGENT_LOGS.parent.mkdir(parents=True, exist_ok=True)
+        SPICE_LAUNCH_AGENT_LOGS.touch()
+
+
+def delete_stdout_file():
+    if SPICE_LAUNCH_AGENT_LOGS.exists():
+        SPICE_LAUNCH_AGENT_LOGS.unlink()
+
+
 def populate_fresh_launch_agent():
     SPICE_LAUNCH_AGENT_LOGS.parent.mkdir(parents=True, exist_ok=True)
     SPICE_LAUNCH_AGENT_LOGS.touch()
@@ -119,6 +130,7 @@ def full_launch_agent_install():
     stop_launch_agent()
     unload_launch_agent()
     populate_fresh_launch_agent()
+    create_stdout_file()
     load_launch_agent()
     start_launch_agent()
 
@@ -126,5 +138,6 @@ def full_launch_agent_install():
 def full_launch_agent_uninstall():
     stop_launch_agent()
     unload_launch_agent()
-    SPICE_LAUNCH_AGENT_FILEPATH.unlink()
-    SPICE_LAUNCH_AGENT_LOGS.unlink()
+    if SPICE_LAUNCH_AGENT_FILEPATH.exists():
+        SPICE_LAUNCH_AGENT_FILEPATH.unlink()
+    delete_stdout_file()
