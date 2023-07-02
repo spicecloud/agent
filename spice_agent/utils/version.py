@@ -30,7 +30,7 @@ def update_if_outdated():
     os_family = platform.system()
     if is_outdated:
         LOGGER.warn(
-            f"The current spice_agent version is at {latest_version} {get_current_version()}."  # noqa
+            f"spice_agent version is at: {get_current_version()} latest is {latest_version}."  # noqa
         )
         # currently only supporting macOS
         if os_family == "Darwin":
@@ -39,3 +39,8 @@ def update_if_outdated():
             daemons = Daemons(spice=None)
             daemons.uninstall()
             daemons.install()
+        else:
+            LOGGER.warn(
+                f"""Please update via:
+pip install --upgrade spice_agent"""
+            )
