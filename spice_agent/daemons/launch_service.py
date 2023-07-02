@@ -13,6 +13,26 @@ SPICE_AGENT_SERVICE_FILEPATH = Path(
 )
 
 
+def stop_service():
+    try:
+        stop_existing_process = f"systemctl --user stop {SPICE_AGENT_SERVICE}"
+        subprocess.check_output(stop_existing_process.split(" "))
+        return True
+    except subprocess.CalledProcessError as exception:
+        print("stop_service: ", exception)
+        return False
+
+
+def start_service():
+    try:
+        start_new_agent = f"systemctl --user start {SPICE_AGENT_SERVICE}"
+        subprocess.check_output(start_new_agent.split(" "))
+        return True
+    except subprocess.CalledProcessError as exception:
+        print("start_service: ", exception)
+        return False
+
+
 def populate_service_file():
     if SPICE_AGENT_SERVICE_FILEPATH.exists():
         SPICE_AGENT_SERVICE_FILEPATH.unlink()
