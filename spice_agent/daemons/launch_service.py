@@ -78,6 +78,16 @@ def verify_service_file():
         return False
 
 
+def enable_service():
+    try:
+        enable_service = f"systemctl --user enable {SPICE_AGENT_SERVICE}"
+        subprocess.check_output(enable_service.split(" "))
+        return True
+    except subprocess.CalledProcessError as exception:
+        print("enable_service: ", exception)
+        return False
+
+
 def start_service():
     try:
         start_new_service = f"systemctl --user start {SPICE_AGENT_SERVICE}"
