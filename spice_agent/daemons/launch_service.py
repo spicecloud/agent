@@ -1,3 +1,4 @@
+import os
 import configparser
 import subprocess
 from pathlib import Path
@@ -7,10 +8,11 @@ HOME_DIRECTORY = Path.home()
 SPICE_BINARY_PATH = Path(HOME_DIRECTORY / ".pyenv" / "shims" / "spice")
 
 SPICE_AGENT_SERVICE = "cloud.spice.agent.service"
-
+SPICE_AGENT_LOGS = "cloud.spice.agent.log"
 SPICE_AGENT_SERVICE_FILEPATH = Path(
     HOME_DIRECTORY / ".config" / "systemd" / "user" / SPICE_AGENT_SERVICE
 )
+SPICE_AGENT_LOGS_FILEPATH = Path(HOME_DIRECTORY / ".cache" / "spice" / SPICE_AGENT_LOGS)
 
 
 def stop_service():
@@ -34,6 +36,9 @@ def disable_service():
 
 
 def populate_service_file():
+    SPICE_AGENT_LOGS_FILEPATH.parent.mkdir(parents=True, exist_ok=True)
+    SPICE_AGENT_LOGS_FILEPATH.touch()
+
     if SPICE_AGENT_SERVICE_FILEPATH.exists():
         SPICE_AGENT_SERVICE_FILEPATH.unlink()
     SPICE_AGENT_SERVICE_FILEPATH.parent.mkdir(parents=True, exist_ok=True)
@@ -48,8 +53,10 @@ def populate_service_file():
     }
 
     config["Service"] = {
-        "ExecStart": f"{SPICE_BINARY_PATH} whoami",
+        "ExecStart": f"{SPICE_BINARY_PATH} worker start",
         "Restart": "always",
+        "StandardError": f"append:{SPICE_AGENT_LOGS_FILEPATH}",
+        "StandardOutput": f"append:{SPICE_AGENT_LOGS_FILEPATH}",
     }
 
     config["Install"] = {
@@ -78,6 +85,17 @@ def verify_service_file():
         return False
 
 
+def create_stdout_file():
+    if not SPICE_AGENT_LOGS_FILEPATH.exists():
+        SPICE_AGENT_LOGS_FILEPATH.parent.mkdir(parents=True, exist_ok=True)
+        SPICE_AGENT_LOGS_FILEPATH.touch()
+
+
+def delete_stdout_file():
+    if SPICE_AGENT_LOGS_FILEPATH.exists():
+        SPICE_AGENT_LOGS_FILEPATH.unlink()
+
+
 def enable_service():
     try:
         enable_service = f"systemctl --user enable {SPICE_AGENT_SERVICE}"
@@ -98,10 +116,16 @@ def start_service():
         return False
 
 
+def view_service_logs():
+    follow_logs = f"tail -f -n +1 {SPICE_AGENT_LOGS_FILEPATH}"
+    os.system(follow_logs)
+
+
 def full_service_install():
     stop_service()
     disable_service()
     populate_service_file()
+    create_stdout_file()
     enable_service()
     start_service()
 
@@ -111,3 +135,4 @@ def full_service_uninstall():
     disable_service()
     if SPICE_AGENT_SERVICE_FILEPATH.exists():
         SPICE_AGENT_SERVICE_FILEPATH.unlink()
+    delete_stdout_file()
