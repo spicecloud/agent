@@ -1,6 +1,7 @@
 from importlib.metadata import version
 import logging
 import os
+import platform
 from typing import Tuple
 
 from outdated import check_outdated
@@ -26,12 +27,15 @@ def update_if_outdated():
     is_outdated, latest_version = get_outdated_and_get_latest_version(
         current_version=current_version
     )
+    os_family = platform.system()
     if is_outdated:
         LOGGER.warn(
-            f"The current spice_agent version is at {latest_version} \
-                {get_current_version()}. Updating..."
+            f"The current spice_agent version is at {latest_version} {get_current_version()}."  # noqa
         )
-        os.system("pip install --upgrade spice_agent")
-        daemons = Daemons(spice=None)
-        daemons.uninstall()
-        daemons.install()
+        # currently only supporting macOS
+        if os_family == "Darwin":
+            LOGGER.warn("Attempting to update and restarting the spice daemon.")
+            os.system("pip install --upgrade spice_agent")
+            daemons = Daemons(spice=None)
+            daemons.uninstall()
+            daemons.install()
