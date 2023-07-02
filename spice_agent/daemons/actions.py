@@ -8,6 +8,14 @@ from spice_agent.daemons.launch_agents import (
     view_launch_agent_logs,
 )
 
+from spice_agent.daemons.launch_service import (
+    full_service_install,
+    full_service_uninstall,
+    start_service,
+    stop_service,
+    view_service_logs,
+)
+
 
 class Daemons:
     def __init__(self, spice) -> None:
@@ -19,8 +27,9 @@ class Daemons:
         if self.os_family == "Darwin":
             full_launch_agent_install()
         elif self.os_family == "Linux":
-            print("Not Implemented")
             if "WSL2" in platform.platform():
+                full_service_install()
+            else:
                 print("Not Implemented")
         elif self.os_family == "Windows":
             print("Not Implemented")
@@ -31,8 +40,9 @@ class Daemons:
         if self.os_family == "Darwin":
             full_launch_agent_uninstall()
         elif self.os_family == "Linux":
-            print("Not Implemented")
             if "WSL2" in platform.platform():
+                full_service_uninstall()
+            else:
                 print("Not Implemented")
         elif self.os_family == "Windows":
             print("Not Implemented")
@@ -43,8 +53,9 @@ class Daemons:
         if self.os_family == "Darwin":
             result = stop_launch_agent()
         elif self.os_family == "Linux":
-            print("Not Implemented")
             if "WSL2" in platform.platform():
+                stop_service()
+            else:
                 print("Not Implemented")
         elif self.os_family == "Windows":
             print("Not Implemented")
@@ -55,8 +66,9 @@ class Daemons:
         if self.os_family == "Darwin":
             result = start_launch_agent()
         elif self.os_family == "Linux":
-            print("Not Implemented")
             if "WSL2" in platform.platform():
+                start_service()
+            else:
                 print("Not Implemented")
         elif self.os_family == "Windows":
             print("Not Implemented")
@@ -66,8 +78,9 @@ class Daemons:
         if self.os_family == "Darwin":
             view_launch_agent_logs()
         elif self.os_family == "Linux":
-            print("Not Implemented")
             if "WSL2" in platform.platform():
+                view_service_logs()
+            else:
                 print("Not Implemented")
         elif self.os_family == "Windows":
             print("Not Implemented")
