@@ -232,6 +232,40 @@ class Training:
             logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
             logging.getLogger("pika").setLevel(logging.ERROR)
 
+    def _get_training_round_step(self, training_round_step_id):
+        query = gql(
+            """
+            query trainingRoundStep($id: GlobalID!) {
+                trainingRoundStep(id: $id) {
+                    id
+                    status
+                }
+            }
+            """  # noqa
+        )
+        variables = {
+            "id": training_round_step_id,
+        }
+
+        return self.spice.session.execute(query, variable_values=variables)
+
+    def _get_training_round(self, training_round_id):
+        query = gql(
+            """
+            query trainingRound($id: GlobalID!) {
+                trainingRound(id: $id) {
+                    id
+                    status
+                }
+            }
+            """  # noqa
+        )
+        variables = {
+            "id": training_round_id,
+        }
+
+        return self.spice.session.execute(query, variable_values=variables)
+
     def _update_training_round(
         self,
         training_round_id: str,
@@ -385,6 +419,9 @@ class Training:
     def upload_models(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
+        if not self.check_training_round_step_exists(training_round_step_id):
+            return None
+
         hf_model_repo_id = config["hfModelRepoId"]
         training_round_id = config["trainingRound"]["id"]
         training_round_number = config["trainingRound"]["roundNumber"]
@@ -671,6 +708,9 @@ class Training:
     def train_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
+        if not self.check_training_round_step_exists(training_round_step_id):
+            return None
+
         training_round_id = config["trainingRound"]["id"]
         base_model_repo_id = config["trainingRound"]["trainingJob"]["baseModelRepoId"]
 
@@ -755,6 +795,9 @@ class Training:
     def test_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
         training_round_step_id = config["id"]
+        if not self.check_training_round_step_exists(training_round_step_id):
+            return None
+
         training_round_id = config["trainingRound"]["id"]
         base_model_repo_id = config["trainingRound"]["trainingJob"]["baseModelRepoId"]
 
@@ -858,9 +901,69 @@ class Training:
             with open(destination_url, "wb") as file:  # download binary file
                 file.write(response.content)
 
+    def check_training_round_exists(self, training_round_id) -> bool:
+        try:
+            result = self._get_training_round(training_round_id=training_round_id)
+            if (
+                result["trainingRound"]["status"]
+                not in self.spice.worker.ACTIVE_STATUSES
+            ):
+                LOGGER.info(f"Training round {training_round_id} is not active")
+                return False
+        except TransportQueryError as exception:
+            if exception.errors:
+                for error in exception.errors:
+                    if (
+                        error.get("message", "")
+                        == "TrainingRound matching query does not exist."
+                    ):
+                        LOGGER.error(
+                            f""" [*] Training Round ID: {training_round_id} not found. Exiting early."""  # noqa
+                        )
+                        SPICE_ROUND_VERIFICATION_FILEPATH.unlink(missing_ok=True)
+                        return False
+                raise exception
+            else:
+                raise exception
+        return True
+
+    def check_training_round_step_exists(self, training_round_step_id) -> bool:
+        try:
+            result = self._get_training_round_step(
+                training_round_step_id=training_round_step_id
+            )
+            if (
+                result["trainingRoundStep"]["status"]
+                not in self.spice.worker.ACTIVE_STATUSES
+            ):
+                LOGGER.info(
+                    f"Training round step {training_round_step_id} is not active"
+                )
+                return False
+        except TransportQueryError as exception:
+            if exception.errors:
+                for error in exception.errors:
+                    if (
+                        error.get("message", "")
+                        == "TrainingRoundStep matching query does not exist."
+                    ):
+                        LOGGER.error(
+                            f""" [*] Training Round Step ID: {training_round_step_id} not found. Exiting early."""  # noqa
+                        )
+                        SPICE_TRAINING_FILEPATH.unlink(missing_ok=True)
+                        return False
+                raise exception
+            else:
+                raise exception
+        return True
+
     def verify_model(self):
         config = read_config_file(filepath=SPICE_ROUND_VERIFICATION_FILEPATH)
         training_round_id = config["id"]
+
+        if not self.check_training_round_exists(training_round_id=training_round_id):
+            return None
+
         training_round_number = config["roundNumber"]
         training_job_id = config["trainingJob"]["id"]
         base_model_repo_id = config["trainingJob"]["baseModelRepoId"]

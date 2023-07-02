@@ -198,6 +198,7 @@ class Worker:
                 has_round_to_verify = False
 
                 if training_config.get("id", None) is not None:
+                    # check that training round step is active
                     step_status = training_config.get("status", None)
                     if step_status in ACTIVE_TRAINING_ROUND_STEP_STATUSES:
                         has_step_to_train = True
