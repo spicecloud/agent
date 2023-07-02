@@ -908,7 +908,10 @@ class Training:
                 result["trainingRound"]["status"]
                 not in self.spice.worker.ACTIVE_STATUSES
             ):
-                LOGGER.info(f"Training round {training_round_id} is not active")
+                LOGGER.info(
+                    f"Training round {training_round_id} is not active. Deleting {SPICE_ROUND_VERIFICATION_FILEPATH} config."  # noqa
+                )
+                SPICE_ROUND_VERIFICATION_FILEPATH.unlink(missing_ok=True)
                 return False
         except TransportQueryError as exception:
             if exception.errors:
@@ -918,7 +921,7 @@ class Training:
                         == "TrainingRound matching query does not exist."
                     ):
                         LOGGER.error(
-                            f""" [*] Training Round ID: {training_round_id} not found. Exiting early."""  # noqa
+                            f""" [*] Training Round ID: {training_round_id} not found. Deleting {SPICE_ROUND_VERIFICATION_FILEPATH} config."""  # noqa
                         )
                         SPICE_ROUND_VERIFICATION_FILEPATH.unlink(missing_ok=True)
                         return False
@@ -937,8 +940,9 @@ class Training:
                 not in self.spice.worker.ACTIVE_STATUSES
             ):
                 LOGGER.info(
-                    f"Training round step {training_round_step_id} is not active"
+                    f"Training round step {training_round_step_id} is not active. Deleting {SPICE_TRAINING_FILEPATH} config."  # noqa
                 )
+                SPICE_TRAINING_FILEPATH.unlink(missing_ok=True)
                 return False
         except TransportQueryError as exception:
             if exception.errors:
@@ -948,7 +952,7 @@ class Training:
                         == "TrainingRoundStep matching query does not exist."
                     ):
                         LOGGER.error(
-                            f""" [*] Training Round Step ID: {training_round_step_id} not found. Exiting early."""  # noqa
+                            f""" [*] Training Round Step ID: {training_round_step_id} not found. Deleting {SPICE_TRAINING_FILEPATH}."""  # noqa
                         )
                         SPICE_TRAINING_FILEPATH.unlink(missing_ok=True)
                         return False
