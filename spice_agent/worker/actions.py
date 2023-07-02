@@ -87,10 +87,15 @@ class Worker:
                 f'No inference_job_id or training_round_step_id or training_round_id found in message body: {body.decode("utf-8")}'  # noqa
             )
 
+        message_acked = False
         if inference_job_id:
             result = self.spice.inference._update_inference_job(
                 inference_job_id=inference_job_id, status="CLAIMED"
             )
+            # ack message at inference level so another machine does not steal the
+            # message while inference is running
+            channel.basic_ack(delivery_tag=method.delivery_tag)
+            message_acked = True
             self.spice.inference.run_pipeline(inference_job_id=inference_job_id)
             LOGGER.info(" [*] Completed inference job.")
 
@@ -108,7 +113,7 @@ class Worker:
             if result is not None:
                 LOGGER.info(" [*] Obtained training round step.")
 
-        if channel.is_open:
+        if not message_acked and channel.is_open:
             channel.basic_ack(delivery_tag=method.delivery_tag)
         else:
             LOGGER.info(" [*] Channel closed already. Cannot ack message.")
