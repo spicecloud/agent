@@ -41,6 +41,6 @@ def update_if_outdated():
             daemons.install()
         else:
             LOGGER.warn(
-                f"""Please update via:
+                """Please update via:
 pip install --upgrade spice_agent"""
             )
