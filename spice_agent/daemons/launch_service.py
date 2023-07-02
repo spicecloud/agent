@@ -1,25 +1,19 @@
 import configparser
+import subprocess
 from pathlib import Path
 
 HOME_DIRECTORY = Path.home()
 
 SPICE_BINARY_PATH = Path(HOME_DIRECTORY / ".pyenv" / "shims" / "spice")
 
-SPICE_AGENT_SERVICE_LABEL = "cloud.spice.agent"
+SPICE_AGENT_SERVICE = "cloud.spice.agent.service"
 
 SPICE_AGENT_SERVICE_FILEPATH = Path(
-    HOME_DIRECTORY
-    / ".config"
-    / "systemd"
-    / "user"
-    / str(SPICE_AGENT_SERVICE_LABEL + ".service")
+    HOME_DIRECTORY / ".config" / "systemd" / "user" / SPICE_AGENT_SERVICE
 )
 
 
 def populate_service_file():
-    # SPICE_LAUNCH_AGENT_LOGS.parent.mkdir(parents=True, exist_ok=True)
-    # SPICE_LAUNCH_AGENT_LOGS.touch()
-
     if SPICE_AGENT_SERVICE_FILEPATH.exists():
         SPICE_AGENT_SERVICE_FILEPATH.unlink()
     SPICE_AGENT_SERVICE_FILEPATH.parent.mkdir(parents=True, exist_ok=True)
@@ -49,3 +43,15 @@ def populate_service_file():
         print(f"populate_service_file: {exception}")
 
     SPICE_AGENT_SERVICE_FILEPATH.chmod(0o644)
+
+
+def verify_service_file():
+    systemctl_check = f"systemctl --user show {SPICE_AGENT_SERVICE} -p CanStart --value"
+    try:
+        output = subprocess.check_output(systemctl_check.split(" ")).decode().strip()
+        if output == "no":
+            raise Exception(f"{systemctl_check} yielded {output}")
+        return True
+    except subprocess.CalledProcessError as exception:
+        print("verify_service_file: ", exception)
+        return False
