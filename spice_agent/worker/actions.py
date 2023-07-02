@@ -113,10 +113,10 @@ class Worker:
         else:
             LOGGER.info(" [*] Channel closed already. Cannot ack message.")
 
-        # LOGGER.info(" [*] Stopping worker...")
-        # if self.channel:
-        #     self.channel.stop_consuming()
-        #     self.channel.close()
+        LOGGER.info(" [*] Stopping worker...")
+        if self.channel:
+            self.channel.stop_consuming()
+            self.channel.close()
 
     def _create_channel(self):
         credentials = pika.PlainCredentials(
