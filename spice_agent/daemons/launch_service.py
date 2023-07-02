@@ -23,10 +23,20 @@ def stop_service():
         return False
 
 
+def remove_service():
+    try:
+        remove_existing_service = f"systemctl --user disable {SPICE_AGENT_SERVICE}"
+        subprocess.check_output(remove_existing_service.split(" "))
+        return True
+    except subprocess.CalledProcessError as exception:
+        print("remove_service: ", exception)
+        return False
+
+
 def start_service():
     try:
-        start_new_agent = f"systemctl --user start {SPICE_AGENT_SERVICE}"
-        subprocess.check_output(start_new_agent.split(" "))
+        start_new_service = f"systemctl --user start {SPICE_AGENT_SERVICE}"
+        subprocess.check_output(start_new_service.split(" "))
         return True
     except subprocess.CalledProcessError as exception:
         print("start_service: ", exception)
