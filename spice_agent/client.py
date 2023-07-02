@@ -30,7 +30,7 @@ class Spice:
         self.host = host
         self.DEBUG = DEBUG
 
-        logger = logging.getLogger("spice")
+        logger = logging.getLogger("spice_agent")
         logger.setLevel(logging.INFO)
         sh = logging.StreamHandler(sys.stdout)
         formatter = logging.Formatter(
