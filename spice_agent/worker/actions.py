@@ -190,7 +190,7 @@ class Worker:
             raise exception
 
     def start(self):
-        LOGGER.info(f" [*] ✨ Starting Spice Worker")
+        LOGGER.info(" [*] ✨ Starting Spice Worker")
         try:
             while True:
                 self.spice.hardware.check_in_http(is_available=True)
