@@ -13,6 +13,7 @@ from spice_agent.utils.config import (
     SPICE_TRAINING_FILEPATH,
     read_config_file,
 )
+from spice_agent.utils.version import get_current_version
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -190,7 +191,8 @@ class Worker:
             raise exception
 
     def start(self):
-        LOGGER.info(" [*] ✨ Starting Spice Worker")
+        LOGGER.info(" [*] ✨ spice worker")
+        LOGGER.info(f" [*] Version: {get_current_version()}")
         try:
             while True:
                 self.spice.hardware.check_in_http(is_available=True)
