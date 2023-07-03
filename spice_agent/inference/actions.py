@@ -135,7 +135,7 @@ class Inference:
 
                 response = self._update_inference_job(
                     inference_job_id=inference_job_id,
-                    status="SUCCESS",
+                    status="COMPLETE",
                     text_output=json.dumps(result),
                 )
             elif is_text_input and is_file_output:
@@ -157,10 +157,10 @@ class Inference:
                 file_id = upload_file_response.json()["data"]["uploadFile"]["id"]
                 response = self._update_inference_job(
                     inference_job_id=inference_job_id,
-                    status="SUCCESS",
+                    status="COMPLETE",
                     file_outputs_ids=file_id,
                 )
-            LOGGER.info(f""" [*] SUCCESS. Result: " {result}""")
+            LOGGER.info(f""" [*] COMPLETE. Result: " {result}""")
             return response
         except PipelineException as exception:
             message = f"""Input: "{input}" threw exception: {exception}"""
