@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import logging
 import platform
 import subprocess
 from typing import Dict
@@ -13,6 +14,8 @@ from spice_agent.utils.config import (
     read_config_file,
     update_config_file,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 class Hardware:
@@ -193,6 +196,7 @@ class Hardware:
         variables = {"input": input}
         try:
             result = self.spice.session.execute(mutation, variable_values=variables)
+            LOGGER.info(" [*] Checked in successfully.")
             return result
         except client_exceptions.ClientConnectorError:
             config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
