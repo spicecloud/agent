@@ -9,6 +9,8 @@ from gql import gql
 from gql.transport.exceptions import TransportQueryError
 from torch.mps import empty_cache as mps_empty_cache
 
+from spice_agent.utils.config import SPICE_INFERENCE_DIRECTORY
+
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import torch  # noqa
@@ -137,7 +139,8 @@ class Inference:
                     text_output=json.dumps(result),
                 )
             elif is_text_input and is_file_output:
-                save_at = Path(Path.home() / "Downloads" / f"{inference_job_id}.png")
+                SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+                save_at = Path(SPICE_INFERENCE_DIRECTORY / f"{inference_job_id}.png")
                 if not save_at.exists():
                     pipe = StableDiffusionPipeline.from_pretrained(
                         hf_model_repo_id, torch_dtype=torch.float32

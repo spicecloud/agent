@@ -5,6 +5,7 @@ import shutil
 from typing import Dict
 
 HOME_DIRECTORY = Path.home()
+SPICE_INFERENCE_DIRECTORY = Path(HOME_DIRECTORY / ".cache" / "spice" / "inference")
 SPICE_HOSTS_FILEPATH = Path(HOME_DIRECTORY / ".config" / "spice" / "hosts.json")
 SPICE_TRAINING_FILEPATH = Path(HOME_DIRECTORY / ".config" / "spice" / "training.json")
 SPICE_ROUND_VERIFICATION_FILEPATH = Path(
