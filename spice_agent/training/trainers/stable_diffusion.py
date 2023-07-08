@@ -25,7 +25,7 @@ from diffusers import (
 from diffusers.training_utils import EMAModel
 
 # from diffusers.utils import check_min_version, deprecate, is_wandb_available
-# from diffusers.utils.import_utils import is_xformers_available
+from diffusers.utils.import_utils import is_xformers_available
 
 from transformers import CLIPTextModel, CLIPTokenizer
 from transformers.utils import ContextManagers
@@ -41,8 +41,12 @@ class SDPTConfig:
     pretrained_model_name_or_path: str
     revision: Optional[str] = None
     seed: Optional[int] = None
-    use_ema: Optional[bool] = None
+
+    # UNet config
+    use_ema: bool = False
     non_ema_revision: Optional[str] = None
+    enable_xformers_memory_efficient_attention: bool = False
+    gradient_checkpointing: bool = False
 
     # Dataset config
     # dataset_name: str
@@ -94,6 +98,7 @@ class StableDiffusionTrainer:
             set_seed(self.config.seed)
 
         self._configure_accelerator()
+        self._configure_unet()
 
     # TODO: Document this
     def _get_accelerator(self) -> Accelerator:
@@ -263,26 +268,19 @@ class StableDiffusionTrainer:
 
         return model
 
-        # TODO: Document this
-        # if self.config.enable_xformers_memory_efficient_attention:
-        #     if is_xformers_available():
-        #         import xformers
+    def _configure_unet(self):
+        # Optimizations for attention blocks within unet - improves speed
+        # and reduces memory consumption. Only available in Windows, Linux
+        if self.config.enable_xformers_memory_efficient_attention:
+            if is_xformers_available():
+                self.model.unet.enable_xformers_memory_efficient_attention()
+            else:
+                raise ValueError(
+                    "xformers is not available. Make sure it is installed correctly"
+                )
 
-        #         xformers_version = version.parse(xformers.__version__)
-        #         if xformers_version == version.parse("0.0.16"):
-        #             logger.warn(
-        #                 "xFormers 0.0.16 cannot be used for training in some GPUs.
-        #                   If you observe problems during training,
-        #                   please update xFormers to at least 0.0.17.
-        #                   See
-        #   https://huggingface.co/docs/diffusers/main/en/optimization/xformers
-        #                   for more details."
-        #             )
-        #         unet.enable_xformers_memory_efficient_attention()
-        #     else:
-        #         raise ValueError(
-        #             "xformers is not available. Make sure it is installed correctly"
-        #         )
+        if self.config.gradient_checkpointing:
+            self.model.unet.enable_gradient_checkpointing()
 
     def compute_snr(self, timesteps):
         """
