@@ -72,17 +72,20 @@ class StableDiffusionTrainer:
     def __init__(self, config: SDPTConfig):
         self.config = config
 
+        self.accelerator_output_dir = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            self.config.output_dir
+        )
+        create_directory(self.accelerator_output_dir)
+
+        self.accelerator_logging_dir = SPICE_MODEL_CACHE_FILEPATH.joinpath(
+            self.config.logging_dir
+        )
+        create_directory(self.accelerator_logging_dir)
+
         self.accelerator = self._get_accelerator()
         self.scheduler = self._get_scheduler()
         self.tokenizer = self._get_tokenizer()
         self.model = self._get_model()
-
-        self.accelerator_output_dir = SPICE_MODEL_CACHE_FILEPATH.joinpath(
-            self.config.output_dir
-        )  # noqa
-        self.accelerator_logging_dir = SPICE_MODEL_CACHE_FILEPATH.joinpath(
-            self.config.logging_dir
-        )  # noqa
 
         self._configure_trainer()
 
@@ -95,7 +98,8 @@ class StableDiffusionTrainer:
     # TODO: Document this
     def _get_accelerator(self) -> Accelerator:
         accelerator_project_config = ProjectConfiguration(
-            project_dir=self.config.output_dir, logging_dir=self.config.logging_dir
+            project_dir=str(self.accelerator_output_dir),
+            logging_dir=str(self.accelerator_logging_dir),
         )
         accelerator = Accelerator(
             gradient_accumulation_steps=self.config.gradient_accumulation_steps,
