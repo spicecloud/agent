@@ -24,6 +24,8 @@ from transformers import (  # noqa
     TrainingArguments,
 )
 
+from diffusers import StableDiffusionPipeline
+
 from spice_agent.utils.config import (
     HF_HUB_DIRECTORY,
     SPICE_MODEL_CACHE_FILEPATH,
@@ -727,7 +729,12 @@ class Training:
         self._update_training_round_step(
             training_round_step_id=training_round_step_id, status="DOWNLOADING_DATASET"
         )
-        train_dataset = self._load_dataset(config, "train")
+
+        hf_dataset_repo_id = None
+        if base_model_repo_id == "CompVis/stable-diffusion-v1-4":
+            hf_dataset_repo_id = config["hfDatasetRepoId"]
+        else:
+            train_dataset = self._load_dataset(config, "train")
 
         # tokenize dataset
         tokenizer = None
@@ -739,6 +746,9 @@ class Training:
             tokenizer, tokenized_dataset = self._tokenize_dataset(
                 train_dataset, config, "train"
             )
+        elif base_model_repo_id == "CompVis/stable-diffusion-v1-4":
+            # tokenizer defined in train_text_to_image.py
+            pass
         else:
             error_message = (
                 f"train_model has unknown base model: {base_model_repo_id} type"
@@ -747,50 +757,88 @@ class Training:
             raise ValueError(error_message)
 
         # load your model with the number of expected labels:
-        model = self._load_model(config, "train")
+        if base_model_repo_id == "CompVis/stable-diffusion-v1-4":
+            # model defined in train_text_to_image.py
+            pass
+        else:
+            model = self._load_model(config, "train")
 
-        training_args = self._get_training_arguments(
-            model_cache_for_training_round, config, "train"
-        )
-        metric = evaluate.load("accuracy")
+        if base_model_repo_id == "CompVis/stable-diffusion-v1-4":
+            # accelerate training
+            import subprocess
 
-        def compute_metrics(eval_pred):
-            logits, labels = eval_pred
-            predictions = np.argmax(logits, axis=-1)
-            return metric.compute(predictions=predictions, references=labels)
+            train_text_to_image_path = (
+                "spice_agent/training/trainers/train_text_to_image_lora.py"
+            )
 
-        status_details_callback = StatusDetailsCallback(
-            training=self,
-            status="TRAINING",
+            try:
+                # TODO: these properties should loaded from config
+                accelerate_process = f"""accelerate launch {train_text_to_image_path} 
+                --mixed_precision=fp16
+                --pretrained_model_name_or_path={base_model_repo_id}
+                --dataset_name={hf_dataset_repo_id}
+                --caption_column=text
+                --random_flip
+                --resolution=128
+                --train_batch_size=32
+                --checkpointing_steps=100
+                --num_train_epochs=5
+                --learning_rate=1e-05
+                --seed=42
+                --lr_scheduler=constant --lr_warmup_steps=0
+                --output_dir={model_cache_for_training_round}
+                """
+
+                commands = accelerate_process.split()
+                subprocess.run(commands)
+            except subprocess.CalledProcessError as exception:
+                error_message = f"train_model has unknown accelerate configuration: for {base_model_repo_id}"  # noqa
+                LOGGER.error(error_message)
+                raise exception
+        else:
+            training_args = self._get_training_arguments(
+                model_cache_for_training_round, config, "train"
+            )
+            metric = evaluate.load("accuracy")
+
+            def compute_metrics(eval_pred):
+                logits, labels = eval_pred
+                predictions = np.argmax(logits, axis=-1)
+                return metric.compute(predictions=predictions, references=labels)
+
+            status_details_callback = StatusDetailsCallback(
+                training=self,
+                status="TRAINING",
+                training_round_step_id=training_round_step_id,
+            )
+
+            if base_model_repo_id == "spicecloud/spice-cnn-base":
+                training_args.remove_unused_columns = False
+
+            trainer = Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=tokenized_dataset,
+                tokenizer=tokenizer,
+                compute_metrics=compute_metrics,
+                callbacks=[status_details_callback],
+            )
+
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id, status="TRAINING"
+            )
+
+            trainer.train()
+
+            trainer.save_model(output_dir=str(model_cache_for_training_round))
+
+            # clear the cache
+            train_dataset.cleanup_cache_files()
+
+        self._update_training_round_step(
             training_round_step_id=training_round_step_id,
+            status="TRAINING_COMPLETE",
         )
-
-        if base_model_repo_id == "spicecloud/spice-cnn-base":
-            training_args.remove_unused_columns = False
-
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=tokenized_dataset,
-            tokenizer=tokenizer,
-            compute_metrics=compute_metrics,
-            callbacks=[status_details_callback],
-        )
-
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="TRAINING"
-        )
-
-        trainer.train()
-
-        trainer.save_model(output_dir=str(model_cache_for_training_round))
-
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id, status="TRAINING_COMPLETE"
-        )
-
-        # clear the cache
-        train_dataset.cleanup_cache_files()
 
     def test_model(self):
         config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
@@ -814,76 +862,172 @@ class Training:
             training_round_step_id=training_round_step_id,
             status="DOWNLOADING_TESTING_DATASET",
         )
-        test_dataset = self._load_dataset(config, "test")
-
-        # tokenize dataset
-        tokenizer = None
-        if base_model_repo_id == "spicecloud/spice-cnn-base":
-            tokenizer, tokenized_dataset = self._process_dataset(
-                test_dataset, config, "test"
+        if base_model_repo_id == "CompVis/stable-diffusion-v1-4":
+            # We load the hf_model_repo
+            hf_model_repo_id = config["hfModelRepoId"]
+            hf_model_repo_id_formatted = hf_model_repo_id.replace("/", "--")
+            snapshot_directory = f"models--{hf_model_repo_id_formatted}/snapshots"
+            hf_model_directory = HF_HUB_DIRECTORY.joinpath(snapshot_directory)
+            recent_snapshot_directory = max(
+                hf_model_directory.iterdir(), key=lambda d: d.stat().st_mtime
             )
-        elif base_model_repo_id == "bert-base-uncased":
-            tokenizer, tokenized_dataset = self._tokenize_dataset(
-                test_dataset, config, "test"
+            recent_hf_model_directory = hf_model_directory.joinpath(
+                recent_snapshot_directory
+            )
+
+            # Get the most recent checkpoint
+            sd_pipeline = StableDiffusionPipeline.from_pretrained(
+                recent_hf_model_directory,
+                torch_dtype=torch.float16,
+            ).to(self.device)
+
+            # Load cached attention weights
+            sd_pipeline.unet.load_attn_procs(model_cache_for_training_round)
+
+            # Run test prompts
+            prompts = [
+                "a photo of an astronaut riding a horse on mars",
+                "A high tech solarpunk utopia in the Amazon rainforest",
+                "A pikachu fine dining with a view to the Eiffel Tower",
+                "A mecha robot in a favela in expressionist style",
+                "an insect robot preparing a delicious meal",
+                "A small cabin on top of a snowy mountain in the style of Disney, artstation",  # noqa
+            ]
+
+            # Ensure that all round step generations are done with a fixed seed
+            seed = 42
+            generator = torch.manual_seed(seed)
+
+            images = sd_pipeline(
+                prompts,
+                num_images_per_prompt=1,
+                output_type="np",
+                generator=generator,
+            ).images  # type: ignore
+
+            # Compute CLIP scores
+            from torchmetrics.functional.multimodal import clip_score  # noqa
+            from functools import partial  # noqa
+
+            clip_score_fn = partial(
+                clip_score, model_name_or_path="openai/clip-vit-base-patch16"
+            )
+
+            def calculate_clip_score(images, prompts):
+                images_int = (images * 255).astype("uint8")
+                clip_score = clip_score_fn(
+                    torch.from_numpy(images_int).permute(0, 3, 1, 2), prompts
+                ).detach()
+                return round(float(clip_score), 4)
+
+            sd_clip_score = calculate_clip_score(images, prompts)
+
+            # Save evaluation results
+            eval_results = {
+                "metrics": {
+                    "clip_score": sd_clip_score,
+                },
+            }
+            cache_eval_results_path = model_cache_for_training_round.joinpath(
+                "eval_results.json"
+            )
+            try:
+                with open(cache_eval_results_path, "w", encoding="utf8") as f:
+                    json.dump(eval_results, f, ensure_ascii=False, indent=4)
+            except IOError as exception:
+                error_message = f"test_model was unable to save eval results for {hf_model_repo_id}"  # noqa
+                LOGGER.error(error_message)
+                raise exception
+
+            # Save round step images
+            from PIL import Image
+
+            try:
+                for i, image in enumerate(images):
+                    im = Image.fromarray((image * 255).astype(np.uint8))
+                    im.save(model_cache_for_training_round.joinpath(f"image_{i}.png"))
+            except Exception as exception:
+                error_message = (
+                    f"test_model was unable to save image for {hf_model_repo_id}"
+                )
+                LOGGER.error(error_message)
+                raise exception
+
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id,
+                status="TESTING_COMPLETE",
             )
         else:
-            error_message = (
-                f"test_model has unknown base model: {base_model_repo_id} type"
+            test_dataset = self._load_dataset(config, "test")
+
+            # tokenize dataset
+            tokenizer = None
+            if base_model_repo_id == "spicecloud/spice-cnn-base":
+                tokenizer, tokenized_dataset = self._process_dataset(
+                    test_dataset, config, "test"
+                )
+            elif base_model_repo_id == "bert-base-uncased":
+                tokenizer, tokenized_dataset = self._tokenize_dataset(
+                    test_dataset, config, "test"
+                )
+            else:
+                error_message = (
+                    f"test_model has unknown base model: {base_model_repo_id} type"
+                )
+                LOGGER.error(error_message)
+                raise ValueError(error_message)
+
+            # load your model with the number of expected labels:
+            model = self._load_model(config, "test")
+
+            eval_args = self._get_training_arguments(
+                model_cache_for_training_round, config, "test"
             )
-            LOGGER.error(error_message)
-            raise ValueError(error_message)
 
-        # load your model with the number of expected labels:
-        model = self._load_model(config, "test")
+            metric = evaluate.load("accuracy")
 
-        eval_args = self._get_training_arguments(
-            model_cache_for_training_round, config, "test"
-        )
+            def compute_metrics(eval_pred):
+                logits, labels = eval_pred
+                predictions = np.argmax(logits, axis=-1)
+                return metric.compute(predictions=predictions, references=labels)
 
-        metric = evaluate.load("accuracy")
+            status_details_callback = StatusDetailsCallback(
+                training=self,
+                training_round_step_id=training_round_step_id,
+                status="TESTING",
+            )
 
-        def compute_metrics(eval_pred):
-            logits, labels = eval_pred
-            predictions = np.argmax(logits, axis=-1)
-            return metric.compute(predictions=predictions, references=labels)
+            if base_model_repo_id == "spicecloud/spice-cnn-base":
+                eval_args.remove_unused_columns = False
 
-        status_details_callback = StatusDetailsCallback(
-            training=self,
-            training_round_step_id=training_round_step_id,
-            status="TESTING",
-        )
+            trainer = Trainer(
+                model=model,
+                args=eval_args,
+                eval_dataset=tokenized_dataset,
+                tokenizer=tokenizer,
+                compute_metrics=compute_metrics,
+                callbacks=[status_details_callback],
+            )
 
-        if base_model_repo_id == "spicecloud/spice-cnn-base":
-            eval_args.remove_unused_columns = False
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id,
+                status="TESTING",
+            )
 
-        trainer = Trainer(
-            model=model,
-            args=eval_args,
-            eval_dataset=tokenized_dataset,
-            tokenizer=tokenizer,
-            compute_metrics=compute_metrics,
-            callbacks=[status_details_callback],
-        )
+            metrics = trainer.evaluate()
 
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id,
-            status="TESTING",
-        )
+            trainer.log_metrics("eval", metrics)
+            trainer.save_metrics("eval", metrics, combined=False)
 
-        metrics = trainer.evaluate()
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id,
+                status="TESTING_COMPLETE",
+                step_accuracy=metrics["eval_accuracy"],
+                step_loss=metrics["eval_loss"],
+            )
 
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics, combined=False)
-
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id,
-            status="TESTING_COMPLETE",
-            step_accuracy=metrics["eval_accuracy"],
-            step_loss=metrics["eval_loss"],
-        )
-
-        # clear the cache
-        test_dataset.cleanup_cache_files()
+            # clear the cache
+            test_dataset.cleanup_cache_files()
 
     def _download_verify_model_file(self, url, destination_url, is_json=False):
         response = requests.get(url)
