@@ -50,4 +50,7 @@ def copy_directory(src_dir, dst_dir, ignore_files=["config.json", "pytorch_model
 
         src_path = Path(src_dir / file)
         dst_path = Path(dst_dir / file)
-        shutil.copy2(src_path, dst_path)
+        if os.path.isfile(src_path):
+            shutil.copy2(src_path, dst_path)
+        else:
+            shutil.copytree(src_path, dst_path)
