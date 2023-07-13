@@ -23,7 +23,7 @@ evaluate = "^0.4.0"
 scikit-learn = "^1.2.2"
 accelerate = "^0.20.3"
 torchvision = "^0.15.2"
-diffusers = "^0.18.1"
+diffusers = "0.18.2"
 outdated = "^0.2.2"
 torchmetrics = "^1.0.0"
 

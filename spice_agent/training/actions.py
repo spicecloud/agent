@@ -786,7 +786,10 @@ class Training:
                 """
 
                 commands = accelerate_process.split()
-                subprocess.run(commands)
+                result = subprocess.run(commands)
+
+                if result.returncode != 0:
+                    raise subprocess.CalledProcessError(result.returncode, result.args)
             except subprocess.CalledProcessError as exception:
                 error_message = f"train_model has unknown accelerate configuration: for {base_model_repo_id}"  # noqa
                 LOGGER.error(error_message)
@@ -953,6 +956,7 @@ class Training:
             self._update_training_round_step(
                 training_round_step_id=training_round_step_id,
                 status="TESTING_COMPLETE",
+                metrics=eval_results["metrics"],
             )
         else:
             test_dataset = self._load_dataset(config, "test")
