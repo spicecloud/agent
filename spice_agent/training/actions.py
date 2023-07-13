@@ -1017,11 +1017,11 @@ class Training:
             trainer.log_metrics("eval", metrics)
             trainer.save_metrics("eval", metrics, combined=False)
 
-        self._update_training_round_step(
-            training_round_step_id=training_round_step_id,
-            status="TESTING_COMPLETE",
-            metrics=metrics,
-        )
+            self._update_training_round_step(
+                training_round_step_id=training_round_step_id,
+                status="TESTING_COMPLETE",
+                metrics=metrics,
+            )
 
             # clear the cache
             test_dataset.cleanup_cache_files()
