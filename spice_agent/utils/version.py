@@ -31,11 +31,18 @@ def update_if_outdated():
     os_family = platform.system()
     if is_outdated:
         LOGGER.warn(
-            f"spice_agent version is at: {get_current_version()} latest is {latest_version}."  # noqa
+            f"spice_agent version is at: {get_current_version()}. Version {latest_version} is available."  # noqa
         )
-        # currently only supporting macOS
+        # currently only supporting macOS and WSL2
         if os_family == "Darwin":
-            LOGGER.warn("Attempting to update and restarting the spice daemon.")
+            LOGGER.warn("Attempting to update and restart the spice daemon.")
+            os.system("pip install --upgrade spice-agent")
+            daemons = Daemons(spice=None)
+            daemons.uninstall()
+            daemons.install()
+            sys.exit()
+        elif os_family == "Linux" and "WSL2" in platform.platform():
+            LOGGER.warn("Attempting to update and restart the spice daemon.")
             os.system("pip install --upgrade spice-agent")
             daemons = Daemons(spice=None)
             daemons.uninstall()
