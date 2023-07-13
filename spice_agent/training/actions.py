@@ -24,6 +24,8 @@ from transformers import (  # noqa
     TrainingArguments,
 )
 
+from transformers.data import DefaultDataCollator
+
 from spice_agent.utils.config import (
     HF_HUB_DIRECTORY,
     SPICE_MODEL_CACHE_FILEPATH,
@@ -271,8 +273,7 @@ class Training:
         training_round_id: str,
         status: str,
         status_details: Optional[dict] = None,
-        round_accuracy: Optional[float] = None,
-        round_loss: Optional[float] = None,
+        metrics: Optional[dict] = None,
     ):
         mutation = gql(
             """
@@ -301,10 +302,8 @@ class Training:
             input["status"] = status
         if status_details:
             input["statusDetails"] = json.dumps(status_details)
-        if round_accuracy is not None:
-            input["roundAccuracy"] = round_accuracy
-        if round_loss is not None:
-            input["roundLoss"] = round_loss
+        if metrics:
+            input["metrics"] = json.dumps(metrics)
 
         variables = {"input": input}
         try:
@@ -330,8 +329,7 @@ class Training:
         status: str,
         status_details: Optional[dict] = None,
         file_id: Optional[str] = None,
-        step_accuracy: Optional[float] = None,
-        step_loss: Optional[float] = None,
+        metrics: Optional[dict] = None,
     ):
         mutation = gql(
             """
@@ -370,10 +368,8 @@ class Training:
             input["statusDetails"] = json.dumps(status_details)
         if file_id is not None:
             input["fileId"] = file_id
-        if step_accuracy is not None:
-            input["stepAccuracy"] = step_accuracy
-        if step_loss is not None:
-            input["stepLoss"] = step_loss
+        if metrics:
+            input["metrics"] = json.dumps(metrics)
 
         variables = {"input": input}
 
@@ -775,6 +771,7 @@ class Training:
             tokenizer=tokenizer,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
+            data_collator=DefaultDataCollator(),
         )
 
         self._update_training_round_step(
@@ -863,6 +860,7 @@ class Training:
             tokenizer=tokenizer,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
+            data_collator=DefaultDataCollator(),
         )
 
         self._update_training_round_step(
@@ -878,8 +876,7 @@ class Training:
         self._update_training_round_step(
             training_round_step_id=training_round_step_id,
             status="TESTING_COMPLETE",
-            step_accuracy=metrics["eval_accuracy"],
-            step_loss=metrics["eval_loss"],
+            metrics=metrics,
         )
 
         # clear the cache
@@ -1064,6 +1061,7 @@ class Training:
             tokenizer=tokenizer,
             compute_metrics=compute_metrics,
             callbacks=[status_details_callback],
+            data_collator=DefaultDataCollator(),
         )
 
         self._update_training_round(
@@ -1102,8 +1100,7 @@ class Training:
         self._update_training_round(
             training_round_id=training_round_id,
             status="VERIFYING_COMPLETE",
-            round_accuracy=metrics["eval_accuracy"],
-            round_loss=metrics["eval_loss"],
+            metrics=metrics,
         )
 
         # clear the cache
