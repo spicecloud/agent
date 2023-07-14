@@ -36,6 +36,7 @@ class Inference:
         self,
         inference_job_id: str,
         status: str,
+        was_guarded: Optional[bool] = None,
         text_output: Optional[str] = None,
         file_outputs_ids: list[str] = [],
     ):
@@ -61,7 +62,7 @@ class Inference:
                         }
                         textInput
                         textOutput
-
+                        wasGuarded
                     }
                 }
             }
@@ -71,6 +72,8 @@ class Inference:
         input: Dict[str, str | float | list[str]] = {"inferenceJobId": inference_job_id}
         if status is not None:
             input["status"] = status
+        if was_guarded is not None:
+            input["wasGuarded"] = was_guarded
         if text_output is not None:
             input["textOutput"] = text_output
         if file_outputs_ids is not None or len(file_outputs_ids) > 0:
@@ -141,12 +144,15 @@ class Inference:
             elif is_text_input and is_file_output:
                 SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / f"{inference_job_id}.png")
+                was_guarded = False
                 if not save_at.exists():
                     pipe = StableDiffusionPipeline.from_pretrained(
                         hf_model_repo_id, torch_dtype=torch.float32
                     )
                     pipe = pipe.to(self.device)  # type: ignore
-                    result = pipe(text_input).images[0]  # type: ignore
+                    pipe_result = pipe(text_input, return_dict=True)  # type: ignore
+                    result = pipe_result.images[0]  # type: ignore
+                    was_guarded = pipe_result.nsfw_content_detected[0]  # type: ignore
                     result.save(save_at)
                 else:
                     LOGGER.info(f""" [*] File already exists at: {save_at}""")
@@ -159,6 +165,7 @@ class Inference:
                     inference_job_id=inference_job_id,
                     status="COMPLETE",
                     file_outputs_ids=file_id,
+                    was_guarded=was_guarded,
                 )
             LOGGER.info(f""" [*] COMPLETE. Result: " {result}""")
             return response
