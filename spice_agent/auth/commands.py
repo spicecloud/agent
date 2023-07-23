@@ -45,7 +45,14 @@ def whoami_command(context):
     show_default="https",
     help="Transport protocol for Spice API",
 )
-def config_command(context, username: str, transport: str):
+@click.option(
+    "--register",
+    is_flag=True,
+    show_default=True,
+    default=False,
+    help="Auto Register Hardware with Spice Cloud",
+)
+def config_command(context, username: str, transport: str, register: bool):
     """Configure the CLI"""
     token = os.environ.get("SPICE_TOKEN", "")
     if not token and context.obj.get("YES"):
@@ -72,7 +79,9 @@ def config_command(context, username: str, transport: str):
     message = f"Config created at '{SPICE_HOSTS_FILEPATH}' for user '{username}' on host '{host}'"  # noqa
     print_result(message=message, context=context, fg="green")
 
-    if click.confirm("Do you want to register this machine with spice.cloud?"):
+    if register or click.confirm(
+        "Do you want to register this machine with spice.cloud?"
+    ):
         spice = Spice(host=host)
         result = spice.hardware.register()
 
@@ -81,7 +90,9 @@ def config_command(context, username: str, transport: str):
                 message="Hardware registered successfully", context=context, fg="green"
             )
 
-    if click.confirm("Do you want to install the agent as a background process?"):
+    if register or click.confirm(
+        "Do you want to install the agent as a background process?"
+    ):
         spice = Spice(host=host)
         spice.daemons.install()
         print_result(
