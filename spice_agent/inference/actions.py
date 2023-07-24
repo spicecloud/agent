@@ -54,7 +54,7 @@ class Inference:
                         model {
                             name
                             slug
-                            hfModelRepoId
+                            repoId
                             isTextInput
                             isTextOutput
                             isFileInput
@@ -114,14 +114,14 @@ class Inference:
             return
 
         inference_job_id = result["updateInferenceJob"]["id"]
-        hf_model_repo_id = result["updateInferenceJob"]["model"]["hfModelRepoId"]
+        model_repo_id = result["updateInferenceJob"]["model"]["repoId"]
         text_input = result["updateInferenceJob"]["textInput"]
         is_text_input = result["updateInferenceJob"]["model"]["isTextInput"]
         is_text_output = result["updateInferenceJob"]["model"]["isTextOutput"]
         result["updateInferenceJob"]["model"]["isFileInput"]
         is_file_output = result["updateInferenceJob"]["model"]["isFileOutput"]
 
-        LOGGER.info(f""" [*] Model: {hf_model_repo_id}.""")
+        LOGGER.info(f""" [*] Model: {model_repo_id}.""")
         LOGGER.info(f""" [*] Text Input: '{text_input}'""")
 
         if torch.backends.mps.is_available():
@@ -133,7 +133,7 @@ class Inference:
         try:
             if is_text_input and is_text_output:
                 result = None
-                pipe = pipeline(model=hf_model_repo_id, device=self.device)
+                pipe = pipeline(model=model_repo_id, device=self.device)
                 result = pipe(text_input)
 
                 response = self._update_inference_job(
@@ -147,7 +147,7 @@ class Inference:
                 was_guarded = False
                 if not save_at.exists():
                     pipe = StableDiffusionPipeline.from_pretrained(
-                        hf_model_repo_id, torch_dtype=torch.float32
+                        model_repo_id, torch_dtype=torch.float32
                     )
                     pipe = pipe.to(self.device)  # type: ignore
                     pipe_result = pipe(text_input, return_dict=True)  # type: ignore
