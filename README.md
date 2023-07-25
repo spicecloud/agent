@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-    <a aria-label="Follow on Twitter" href="https://twitter.com/spicecloud">
+    <a aria-label="Follow on Twitter" href="https://twitter.com/spice_cloud">
     <img alt="Twitter Follow" src="https://img.shields.io/badge/Twitter-blue.svg?style=for-the-badge&labelColor=000000&logoWidth=20">
   </a>
   <a aria-label="Join the community on Discord" href="https://discord.gg/DAhNzUse">
