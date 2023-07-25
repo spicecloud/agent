@@ -19,11 +19,17 @@
   <a aria-label="License" href="https://github.com/spicecloud/agent/blob/main/license.md">
     <img alt="" src="https://img.shields.io/npm/l/next.svg?style=for-the-badge&labelColor=000000">
   </a>
-  <a aria-label="Follow on Twitter" href="https://twitter.com/spicecloud">
-    <img alt="Twitter Follow" src="https://img.shields.io/twitter/follow/spicecloud?style=for-the-badge&labelColor=000000&logoWidth=20">
+</p>
+
+<p align="center">
+    <a aria-label="Follow on Twitter" href="https://twitter.com/spicecloud">
+    <img alt="Twitter Follow" src="https://img.shields.io/badge/Twitter-blue.svg?style=for-the-badge&labelColor=000000&logoWidth=20">
   </a>
   <a aria-label="Join the community on Discord" href="https://discord.gg/DAhNzUse">
-    <img alt="" src="https://img.shields.io/badge/Join%20the%20community-blueviolet.svg?style=for-the-badge&labelColor=000000&logoWidth=20">
+    <img alt="" src="https://img.shields.io/badge/Discord-blueviolet.svg?style=for-the-badge&labelColor=000000&logoWidth=20">
+  </a>
+  <a aria-label="Join the community on Reddit" href="https://reddit.com/r/spicecloud">
+    <img alt="" src="https://img.shields.io/badge/Reddit-orange.svg?style=for-the-badge&labelColor=000000&logoWidth=20">
   </a>
 </p>
 
