@@ -6,8 +6,12 @@
 
 <p align="center">
   <a aria-label="Spice Cloud" href="https://spice.cloud">
-    <img src="assets/icon-text.png" style="max-width: 150px;">
+    <img src="assets/icon-text.png" style="width: 150px !important; max-width: 150px !important;">
   </a>
+</p>
+  
+<p align="center">
+ 
 
   <a aria-label="PyPi version" href="https://pypi.org/project/spice-agent/">
    <img alt="" src="https://img.shields.io/pypi/v/spice-agent.svg?style=for-the-badge&labelColor=000000">
