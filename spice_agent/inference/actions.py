@@ -152,7 +152,8 @@ class Inference:
                     pipe = pipe.to(self.device)  # type: ignore
                     pipe_result = pipe(text_input, return_dict=True)  # type: ignore
                     result = pipe_result.images[0]  # type: ignore
-                    was_guarded = pipe_result.nsfw_content_detected[0]  # type: ignore
+                    if pipe_result.nsfw_content_detected:  # type: ignore
+                        was_guarded = pipe_result.nsfw_content_detected[0]  # type: ignore # noqa
                     result.save(save_at)
                 else:
                     LOGGER.info(f""" [*] File already exists at: {save_at}""")
