@@ -25,7 +25,7 @@
     <a aria-label="Follow on Twitter" href="https://twitter.com/spice_cloud">
     <img alt="Twitter Follow" src="https://img.shields.io/badge/Twitter-blue.svg?style=for-the-badge&labelColor=000000&logoWidth=20">
   </a>
-  <a aria-label="Join the community on Discord" href="https://discord.gg/DAhNzUse">
+  <a aria-label="Join the community on Discord" href="https://discord.com/invite/ntv7u9HAVm">
     <img alt="" src="https://img.shields.io/badge/Discord-blueviolet.svg?style=for-the-badge&labelColor=000000&logoWidth=20">
   </a>
   <a aria-label="Join the community on Reddit" href="https://reddit.com/r/spicecloud">
