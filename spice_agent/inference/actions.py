@@ -4,7 +4,11 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
-from diffusers import StableDiffusionPipeline
+from diffusers import (
+    DiffusionPipeline,
+    StableDiffusionXLPipeline,
+    StableDiffusionXLImg2ImgPipeline,
+)
 from gql import gql
 from gql.transport.exceptions import TransportQueryError
 from torch.mps import empty_cache as mps_empty_cache
@@ -146,15 +150,58 @@ class Inference:
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / f"{inference_job_id}.png")
                 was_guarded = False
                 if not save_at.exists():
-                    pipe = StableDiffusionPipeline.from_pretrained(
-                        model_repo_id, torch_dtype=torch.float32
+                    pipe = DiffusionPipeline.from_pretrained(
+                        model_repo_id,
+                        torch_dtype=torch.float16,
+                        variant="fp16",
+                        use_safetensors=True,
                     )
                     pipe = pipe.to(self.device)  # type: ignore
-                    pipe_result = pipe(text_input, return_dict=True)  # type: ignore
-                    result = pipe_result.images[0]  # type: ignore
-                    if pipe_result.nsfw_content_detected:  # type: ignore
-                        was_guarded = pipe_result.nsfw_content_detected[0]  # type: ignore # noqa
-                    result.save(save_at)
+
+                    # Configure MOE for xl diffusion base + refinement
+                    if (
+                        isinstance(pipe, StableDiffusionXLPipeline)
+                        and "stabilityai/stable-diffusion-xl-base-1.0"
+                    ):
+                        # arguments
+                        refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+                            "stabilityai/stable-diffusion-xl-refiner-1.0",
+                            text_encoder_2=pipe.text_encoder_2,
+                            vae=pipe.vae,
+                            torch_dtype=torch.float16,
+                            variant="fp16",
+                            use_safetensors=True,
+                        )
+
+                        refiner = refiner.to(self.device)
+
+                        latents = pipe(
+                            prompt=text_input,
+                            # negative_prompt=negative_prompt,
+                            # num_images_per_prompt=num_images_per_prompt,
+                            # num_inference_steps=n_steps,
+                            output_type="latent",
+                        ).images  # type: ignore
+
+                        pipe_result = refiner(
+                            prompt=text_input,
+                            # negative_prompt=negative_prompt,
+                            # num_images_per_prompt=num_images_per_prompt,
+                            # num_inference_steps=n_steps,
+                            image=latents,  # type: ignore
+                        )  # type: ignore
+                    else:
+                        pipe_result = pipe(text_input, return_dict=False)  # type:ignore
+
+                    # pipe returns a tuple in the form the first element is a list with
+                    # the generated images, and the second element is a list of `bool`s
+                    # denoting whether the corresponding generated image likely
+                    # represents "not-safe-for-work" (nsfw) content, according to the
+                    # `safety_checker`.
+                    result = pipe_result[0][0]  # type: ignore
+                    if len(pipe_result) > 1:
+                        was_guarded = pipe_result[1][0]  # type: ignore
+                    result.save(save_at)  # type: ignore
                 else:
                     LOGGER.info(f""" [*] File already exists at: {save_at}""")
 
