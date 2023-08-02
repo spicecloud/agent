@@ -128,7 +128,11 @@ class Inference:
         LOGGER.info(f""" [*] Model: {model_repo_id}.""")
         LOGGER.info(f""" [*] Text Input: '{text_input}'""")
 
+        variant = "fp16"
+        torch_dtype = torch.float16
         if torch.backends.mps.is_available():
+            variant = "fp32"
+            torch_dtype = torch.float32
             mps_empty_cache()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -152,8 +156,8 @@ class Inference:
                 if not save_at.exists():
                     pipe = DiffusionPipeline.from_pretrained(
                         model_repo_id,
-                        torch_dtype=torch.float16,
-                        variant="fp16",
+                        torch_dtype=torch_dtype,
+                        variant=variant,
                         use_safetensors=True,
                     )
                     pipe = pipe.to(self.device)  # type: ignore
@@ -168,8 +172,8 @@ class Inference:
                             "stabilityai/stable-diffusion-xl-refiner-1.0",
                             text_encoder_2=pipe.text_encoder_2,
                             vae=pipe.vae,
-                            torch_dtype=torch.float16,
-                            variant="fp16",
+                            torch_dtype=torch_dtype,
+                            variant=variant,
                             use_safetensors=True,
                         )
 
@@ -199,7 +203,7 @@ class Inference:
                     # represents "not-safe-for-work" (nsfw) content, according to the
                     # `safety_checker`.
                     result = pipe_result[0][0]  # type: ignore
-                    if len(pipe_result) > 1:
+                    if len(pipe_result) > 1 and pipe_result[1]:  # type: ignore
                         was_guarded = pipe_result[1][0]  # type: ignore
                     result.save(save_at)  # type: ignore
                 else:
