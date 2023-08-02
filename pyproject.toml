@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "spice_agent"
-version = "0.1.9"
+version = "0.1.10"
 description = "spice agent"
 authors = ["Dylan Stein <dylan@spice.cloud>", "Ankush Patel <ankush@spice.cloud>"]
 license = ""
