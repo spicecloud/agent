@@ -46,20 +46,21 @@ class Spice:
         if "staging" in host:
             environment = "staging"
 
-        # https://docs.sentry.io/product/sentry-basics/dsn-explainer/
-        # It's okay to send the user's the Sentry DSN!
-        # That's how we get metrics / errors from their usage.
-        SENTRY_DSN = "https://1ee4a12126f0421bbe382d9227e46c4a@o4505155992223744.ingest.sentry.io/4505156109139968"  # noqa
-        sentry_sdk.init(
-            dsn=SENTRY_DSN,
-            environment=environment,
-            debug=DEBUG,
-            traces_sample_rate=1.0,
-            profiles_sample_rate=1.0,
-            attach_stacktrace=True,
-            send_default_pii=True,
-            release=f"spice@{__version__}",
-        )
+        if environment != "development":
+            # https://docs.sentry.io/product/sentry-basics/dsn-explainer/
+            # It's okay to send the user's the Sentry DSN!
+            # That's how we get metrics / errors from their usage.
+            SENTRY_DSN = "https://1ee4a12126f0421bbe382d9227e46c4a@o4505155992223744.ingest.sentry.io/4505156109139968"  # noqa
+            sentry_sdk.init(
+                dsn=SENTRY_DSN,
+                environment=environment,
+                debug=DEBUG,
+                traces_sample_rate=1.0,
+                profiles_sample_rate=1.0,
+                attach_stacktrace=True,
+                send_default_pii=True,
+                release=f"spice@{__version__}",
+            )
 
         self.create_session()
 

@@ -7,8 +7,11 @@ import subprocess
 from typing import Dict
 
 from aiohttp import client_exceptions
-from gql import gql
+from gql import Client, gql
+from gql.transport.aiohttp import AIOHTTPTransport
+import requests
 
+from spice_agent.__version__ import __version__
 from spice_agent.utils.config import (
     SPICE_TRAINING_FILEPATH,
     read_config_file,
@@ -202,3 +205,58 @@ class Hardware:
             config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
             if config.get("status") in self.spice.worker.ACTIVE_STATUSES:
                 return None
+
+    async def async_check_in_http(
+        self,
+        is_healthy: bool = True,
+        is_quarantined: bool = False,
+        is_available: bool = True,
+    ):
+        fingerprint = self.spice.host_config.get("fingerprint", None)
+        if not fingerprint:
+            message = "No fingerprint found. Please register: spice hardware register"
+            raise Exception(message)
+
+        mutation = gql(
+            """
+            mutation checkIn($input: CheckInInput!) {
+                checkIn(input: $input) {
+                    ... on Hardware {
+                        createdAt
+                        updatedAt
+                        lastCheckIn
+                    }
+                }
+            }
+        """  # noqa
+        )
+        input = {
+            "isHealthy": is_healthy,
+            "isQuarantined": is_quarantined,
+            "isAvailable": is_available,
+        }
+        variables = {"input": input}
+
+        host_config = self.spice.host_config
+        host = self.spice.host
+        token = host_config.get("token")
+        transport = host_config.get("transport")
+        url = f"{transport}://{host}/"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "x-spice-agent": f"spice@{__version__}",
+        }
+        if token:
+            headers["Authorization"] = f"Token {token}"
+
+        if fingerprint := host_config.get("fingerprint", None):
+            headers["x-spice-fingerprint"] = fingerprint
+        transport = AIOHTTPTransport(url=url, headers=headers)
+
+        async with Client(
+            transport=transport,
+        ) as session:
+            result = await session.execute(mutation, variable_values=variables)
+            LOGGER.info(" [*] Checked in successfully.")
+            return result

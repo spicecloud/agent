@@ -29,6 +29,21 @@ test-trackers = ["comet-ml", "tensorboard", "wandb"]
 testing = ["datasets", "deepspeed", "evaluate", "parameterized", "pytest", "pytest-subtests", "pytest-xdist", "scikit-learn", "scipy", "tqdm", "transformers"]
 
 [[package]]
+name = "aio-pika"
+version = "9.2.0"
+description = "Wrapper around the aiormq for asyncio and humans"
+optional = false
+python-versions = ">=3.7,<4.0"
+files = [
+    {file = "aio_pika-9.2.0-py3-none-any.whl", hash = "sha256:65e114d6896ec6dbe364be365dc41a6260b81accf062523b280cd33660a4e808"},
+    {file = "aio_pika-9.2.0.tar.gz", hash = "sha256:00df6c27555189fd59188730daefe4fcdcc42fa7168eb8a4d69d83f6bc32b120"},
+]
+
+[package.dependencies]
+aiormq = ">=6.7.7,<6.8.0"
+yarl = "*"
+
+[[package]]
 name = "aiohttp"
 version = "3.8.4"
 description = "Async http client/server framework (asyncio)"
@@ -135,6 +150,21 @@ yarl = ">=1.0,<2.0"
 
 [package.extras]
 speedups = ["Brotli", "aiodns", "cchardet"]
+
+[[package]]
+name = "aiormq"
+version = "6.7.7"
+description = "Pure python AMQP asynchronous client library"
+optional = false
+python-versions = ">=3.7,<4.0"
+files = [
+    {file = "aiormq-6.7.7-py3-none-any.whl", hash = "sha256:f5efbfcd7d703f3c05c08d4e74cfaa66ca7199840e2969d75ad41b0810026b0a"},
+    {file = "aiormq-6.7.7.tar.gz", hash = "sha256:3b93f612f56989b2757a9a7b299dd94dd3227ce28ba43e81d5fbcded6341dfab"},
+]
+
+[package.dependencies]
+pamqp = "3.2.1"
+yarl = "*"
 
 [[package]]
 name = "aiosignal"
@@ -1507,6 +1537,21 @@ files = [
     {file = "packaging-23.1-py3-none-any.whl", hash = "sha256:994793af429502c4ea2ebf6bf664629d07c1a9fe974af92966e4b8d2df7edc61"},
     {file = "packaging-23.1.tar.gz", hash = "sha256:a392980d2b6cffa644431898be54b0045151319d1e7ec34f0cfed48767dd334f"},
 ]
+
+[[package]]
+name = "pamqp"
+version = "3.2.1"
+description = "RabbitMQ Focused AMQP low-level library"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "pamqp-3.2.1-py2.py3-none-any.whl", hash = "sha256:15acef752356593ca569d13dfedc8ada9f17deeeb8cec4f7b77825e2b6c7de3e"},
+    {file = "pamqp-3.2.1.tar.gz", hash = "sha256:22550ceb1ca50aafda65873e77e8c1c1b139fb5975e1a09860fae940cf8e970a"},
+]
+
+[package.extras]
+codegen = ["lxml", "requests", "yapf"]
+testing = ["coverage", "flake8", "flake8-comprehensions", "flake8-deprecated", "flake8-import-order", "flake8-print", "flake8-quotes", "flake8-rst-docstrings", "flake8-tuple", "yapf"]
 
 [[package]]
 name = "pandas"
@@ -3327,4 +3372,4 @@ testing = ["big-O", "flake8 (<5)", "jaraco.functools", "jaraco.itertools", "more
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11.3"
-content-hash = "0f3ce7d940911d15971d913668dc2f08ed7e414c0d4c5070f6c00b91299b3273"
+content-hash = "bf8f6bd98362571fa98e8ad590325309791c7d109e9af5d8517ea03e5a91d344"

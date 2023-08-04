@@ -26,6 +26,7 @@ torchvision = "^0.15.2"
 diffusers = "^0.18.0"
 outdated = "^0.2.2"
 invisible-watermark = "^0.2.0"
+aio-pika = "^9.2.0"
 
 [tool.poetry.dev-dependencies]
 ruff = "^0.0.275"
