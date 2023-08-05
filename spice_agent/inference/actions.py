@@ -11,9 +11,11 @@ from diffusers import (
 )
 from gql import gql
 from gql.transport.exceptions import TransportQueryError
-from torch.mps import empty_cache as mps_empty_cache
 
 from spice_agent.utils.config import SPICE_INFERENCE_DIRECTORY
+
+# from torch.mps import empty_cache as mps_empty_cache ## SAVE FOR LATER
+
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
