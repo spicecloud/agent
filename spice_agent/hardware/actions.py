@@ -168,7 +168,8 @@ class Hardware:
         self,
         is_healthy: bool = True,
         is_quarantined: bool = False,
-        is_available: bool = True,
+        is_available: bool = False,
+        is_online: bool = True,
     ):
         fingerprint = self.spice.host_config.get("fingerprint", None)
         if not fingerprint:
@@ -192,6 +193,7 @@ class Hardware:
             "isHealthy": is_healthy,
             "isQuarantined": is_quarantined,
             "isAvailable": is_available,
+            "isOnline": is_online,
         }
         variables = {"input": input}
         try:
