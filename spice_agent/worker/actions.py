@@ -89,7 +89,6 @@ class Worker:
             )
 
         message_acked = False
-        print("a", message_acked, channel.is_open)
         if inference_job_id:
             self.spice.inference._update_inference_job(
                 inference_job_id=inference_job_id, status="CLAIMED"
@@ -98,35 +97,39 @@ class Worker:
             # message while inference is running
             channel.basic_ack(delivery_tag=method.delivery_tag)
             message_acked = True
-            print("b", message_acked, channel.is_open)
             self.spice.inference.run_pipeline(inference_job_id=inference_job_id)
             LOGGER.info(" [*] Completed inference job.")
 
-        # if training_round_id:
-        #     result = self.spice.training._update_training_round(
-        #         training_round_id=training_round_id, status="CLAIMED"
-        #     )
-        #     if result is not None:
-        #         LOGGER.info(" [*] Obtained training round.")
+        if training_round_id:
+            result = self.spice.training._update_training_round(
+                training_round_id=training_round_id, status="CLAIMED"
+            )
+            if result is not None:
+                LOGGER.info(" [*] Obtained training round.")
+                LOGGER.info(" [*] Stopping consumer, to begin training round.")
+                if channel:
+                    channel.basic_ack(delivery_tag=method.delivery_tag)
+                    channel.stop_consuming()
+                    channel.close()
 
-        # if training_round_step_id:
-        #     result = self.spice.training._update_training_round_step(
-        #         training_round_step_id=training_round_step_id, status="CLAIMED"
-        #     )
-        #     if result is not None:
-        #         LOGGER.info(" [*] Obtained training round step.")
-        print("c", message_acked, channel.is_open)
+        if training_round_step_id:
+            result = self.spice.training._update_training_round_step(
+                training_round_step_id=training_round_step_id, status="CLAIMED"
+            )
+            if result is not None:
+                LOGGER.info(" [*] Obtained training round step.")
+                LOGGER.info(" [*] Stopping consumer, to begin training round step.")
+                if channel:
+                    channel.basic_ack(delivery_tag=method.delivery_tag)
+                    channel.stop_consuming()
+                    channel.close()
+
         if not message_acked and channel.is_open:
             channel.basic_ack(delivery_tag=method.delivery_tag)
         elif not message_acked and not channel.is_open:
             LOGGER.info(" [*] Channel closed already. Cannot ack message.")
         else:
             pass
-
-        # LOGGER.info(" [*] Stopping worker...")
-        # if self.channel:
-        #     self.channel.stop_consuming()
-        #     self.channel.close()
 
     def _create_channel(self):
         credentials = pika.PlainCredentials(
@@ -214,9 +217,9 @@ class Worker:
             raise exception
 
     def start(self):
-        self.spice.hardware.check_in_http(is_available=False, is_online=True)
         LOGGER.info(" [*] ✨ spice worker")
         LOGGER.info(f" [*] Version: {get_current_version()}")
+        self.spice.hardware.check_in_http(is_available=False, is_online=True)
         try:
             while True:
                 # check if this machine picked up a training round already
