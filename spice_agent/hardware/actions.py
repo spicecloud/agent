@@ -7,6 +7,7 @@ import subprocess
 from typing import Dict
 
 from aiohttp import client_exceptions
+import click
 from gql import gql
 
 from spice_agent.utils.config import (
@@ -15,12 +16,20 @@ from spice_agent.utils.config import (
     update_config_file,
 )
 
+from ..utils.printer import print_result
+
 LOGGER = logging.getLogger(__name__)
 
 
 class Hardware:
     def __init__(self, spice) -> None:
         self.spice = spice
+        self.previous_state = {
+            "isHealthy": False,
+            "isQuarantined": False,
+            "isAvailable": False,
+            "isOnline": False,
+        }
 
     def get_darwin_system_profiler_values(self) -> Dict[str, str]:
         system_profiler_hardware_data_type = subprocess.check_output(
@@ -176,6 +185,13 @@ class Hardware:
             message = "No fingerprint found. Please register: spice hardware register"
             raise Exception(message)
 
+        new_state = {
+            "isHealthy": is_healthy,
+            "isQuarantined": is_quarantined,
+            "isAvailable": is_available,
+            "isOnline": is_online,
+        }
+
         mutation = gql(
             """
             mutation checkIn($input: CheckInInput!) {
@@ -189,16 +205,32 @@ class Hardware:
             }
         """  # noqa
         )
-        input = {
-            "isHealthy": is_healthy,
-            "isQuarantined": is_quarantined,
-            "isAvailable": is_available,
-            "isOnline": is_online,
-        }
+        input = new_state
         variables = {"input": input}
         try:
             result = self.spice.session.execute(mutation, variable_values=variables)
-            LOGGER.info(" [*] Checked in successfully.")
+            previous_state = self.previous_state
+            self.previous_state = new_state.copy()
+
+            message = " [*] Checked in successfully: "
+            for key, value in new_state.items():
+                if value != previous_state.get(key, None):
+                    if value == True:
+                        message = (
+                            message
+                            + click.style(f"{key}: ")
+                            + click.style(f"💤")
+                            + click.style(f" ==> ✅ ", fg="green")
+                        )
+                    else:
+                        message = (
+                            message
+                            + click.style(f"{key}: ")
+                            + click.style(f"✅")
+                            + click.style(f" ==> 💤 ", fg="yellow")
+                        )
+            LOGGER.info(message)
+
             return result
         except client_exceptions.ClientConnectorError:
             config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
