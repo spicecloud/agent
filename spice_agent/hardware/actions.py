@@ -16,7 +16,6 @@ from spice_agent.utils.config import (
     update_config_file,
 )
 
-from ..utils.printer import print_result
 
 LOGGER = logging.getLogger(__name__)
 
@@ -215,19 +214,19 @@ class Hardware:
             message = " [*] Checked in successfully: "
             for key, value in new_state.items():
                 if value != previous_state.get(key, None):
-                    if value == True:
+                    if value is True:
                         message = (
                             message
                             + click.style(f"{key}: ")
-                            + click.style(f"💤")
-                            + click.style(f" ==> ✅ ", fg="green")
+                            + click.style("💤")
+                            + click.style(" ==> ✅ ", fg="green")
                         )
                     else:
                         message = (
                             message
                             + click.style(f"{key}: ")
-                            + click.style(f"✅")
-                            + click.style(f" ==> 💤 ", fg="yellow")
+                            + click.style("✅")
+                            + click.style(" ==> 💤 ", fg="yellow")
                         )
             LOGGER.info(message)
 
