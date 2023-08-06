@@ -109,6 +109,7 @@ class Worker:
                 LOGGER.info(" [*] Stopping consumer, to begin training round.")
                 if channel:
                     channel.basic_ack(delivery_tag=method.delivery_tag)
+                    message_acked = True
                     channel.stop_consuming()
                     channel.close()
 
@@ -121,6 +122,7 @@ class Worker:
                 LOGGER.info(" [*] Stopping consumer, to begin training round step.")
                 if channel:
                     channel.basic_ack(delivery_tag=method.delivery_tag)
+                    message_acked = True
                     channel.stop_consuming()
                     channel.close()
 
