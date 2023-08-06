@@ -282,5 +282,5 @@ class Worker:
                 self.channel.stop_consuming()
                 self.channel.close()
                 self.channel = None
-            self.spice.hardware.check_in_http(is_available=False, is_offline=False)
+            self.spice.hardware.check_in_http(is_available=False, is_online=False)
             sys.exit()

@@ -16,14 +16,12 @@ import torch  # noqa
 from torchvision.transforms import Compose, Normalize, RandomResizedCrop, ToTensor
 from transformers import (  # noqa
     AutoImageProcessor,
-    AutoModel,
     AutoModelForImageClassification,
     AutoModelForSequenceClassification,
     AutoTokenizer,
     Trainer,
     TrainingArguments,
 )
-
 from transformers.data import DefaultDataCollator
 
 from spice_agent.utils.config import (
@@ -286,11 +284,16 @@ class Training:
                         roundNumber
                         trainingJob {
                             id
-                            baseModelRepoId
-                            baseModelRepoRevision
+                            baseModel {
+                                repoId
+                                repoRevision
+                            }
                             baseDatasetRepoId
                             baseDatasetRepoRevision
-                            hfModelRepoId
+                            hfModel {
+                                repoId
+                                repoRevision
+                            }
                         }
                     }
                 }
@@ -351,8 +354,10 @@ class Training:
                             roundNumber
                             trainingJob {
                                 id
-                                baseModelRepoId
-                                baseModelRepoRevision
+                                baseModel {
+                                    repoId
+                                    repoRevision
+                                }
                             }
                         }
                         statusDetails
@@ -514,9 +519,11 @@ class Training:
             )
         elif task == "verify":
             training_round_number = config["roundNumber"]
-            hf_model_repo_id = config["trainingJob"]["hfModelRepoId"]
-            base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
-            base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
+            hf_model_repo_id = config["trainingJob"]["hfModel"]["repoId"]
+            base_model_repo_id = config["trainingJob"]["baseModel"]["repoId"]
+            base_model_repo_revision = config["trainingJob"]["baseModel"][
+                "repoRevision"
+            ]
 
             tokenizer = AutoTokenizer.from_pretrained(
                 pretrained_model_name_or_path=hf_model_repo_id
@@ -569,9 +576,11 @@ class Training:
             )
         elif task == "verify":
             training_round_number = config["roundNumber"]
-            hf_model_repo_id = config["trainingJob"]["hfModelRepoId"]
-            base_model_repo_id = config["trainingJob"]["baseModelRepoId"]
-            base_model_repo_revision = config["trainingJob"]["baseModelRepoRevision"]
+            hf_model_repo_id = config["trainingJob"]["hfModel"]["repoId"]
+            base_model_repo_id = config["trainingJob"]["baseModel"]["repoId"]
+            base_model_repo_revision = config["trainingJob"]["baseModel"][
+                "repoRevision"
+            ]
 
             pretrained_model_name_or_path = base_model_repo_id
             revision = "main"
@@ -624,8 +633,8 @@ class Training:
         if task == "train" or task == "test":
             training_round_id = config["trainingRound"]["id"]
             training_round_step_id = config["id"]
-            base_model_repo_id = config["trainingRound"]["trainingJob"][
-                "baseModelRepoId"
+            base_model_repo_id = config["trainingRound"]["trainingJob"]["baseModel"][
+                "repoId"
             ]
             training_round_directory = (
                 f"{training_round_id}/steps/{training_round_step_id}"
@@ -708,7 +717,9 @@ class Training:
             return None
 
         training_round_id = config["trainingRound"]["id"]
-        base_model_repo_id = config["trainingRound"]["trainingJob"]["baseModelRepoId"]
+        base_model_repo_id = config["trainingRound"]["trainingJob"]["baseModel"][
+            "repoId"
+        ]
 
         # create the folder for the new training round
         # where the step model will be saved
@@ -796,8 +807,9 @@ class Training:
             return None
 
         training_round_id = config["trainingRound"]["id"]
-        base_model_repo_id = config["trainingRound"]["trainingJob"]["baseModelRepoId"]
-
+        base_model_repo_id = config["trainingRound"]["trainingJob"]["baseModel"][
+            "repoId"
+        ]
         # create the folder for the new training round
         # where the step model will be saved
         training_round_directory = f"{training_round_id}/steps/{training_round_step_id}"
