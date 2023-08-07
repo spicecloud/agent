@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional, Dict, Any
 
 from diffusers import (
     DiffusionPipeline,
@@ -42,6 +42,7 @@ class Inference:
         status: str,
         was_guarded: Optional[bool] = None,
         text_output: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
         file_outputs_ids: list[str] = [],
     ):
         mutation = gql(
@@ -67,17 +68,22 @@ class Inference:
                         textInput
                         textOutput
                         wasGuarded
+                        options
                     }
                 }
             }
             """
         )
 
-        input: Dict[str, str | float | list[str]] = {"inferenceJobId": inference_job_id}
+        input: Dict[str, str | float | list[str] | Dict[str, Any]] = {
+            "inferenceJobId": inference_job_id
+        }
         if status is not None:
             input["status"] = status
         if was_guarded is not None:
             input["wasGuarded"] = was_guarded
+        if options is not None:
+            input["options"] = options
         if text_output is not None:
             input["textOutput"] = text_output
         if file_outputs_ids is not None or len(file_outputs_ids) > 0:
@@ -100,6 +106,37 @@ class Inference:
                 raise exception
             else:
                 raise exception
+
+    def _get_stable_diffusion_options(self, options: Dict[str, Any]) -> dict:
+        """
+        Parses any inference options that may be defined for
+        StableDiffusionPipeline
+        """
+
+        stable_diffusion_options: dict = {}
+
+        if "negative_prompt" in options:
+            stable_diffusion_options["negative_prompt"] = options["negative_prompt"]
+
+        if "guidance_scale" in options:
+            stable_diffusion_options["guidance_scale"] = options["guidance_scale"]
+
+        if "num_inference_steps" in options:
+            stable_diffusion_options["num_inference_steps"] = options[
+                "num_inference_steps"
+            ]
+
+        if "seed" in options:
+            # If seed is -1, we generate a random seed and update
+            # the inference job.
+            # Note, completely reproducible results are not guaranteed across
+            # PyTorch releases.
+            if options["seed"] == -1:
+                options["seed"] = torch.seed()
+
+            stable_diffusion_options["generator"] = torch.manual_seed(options["seed"])
+
+        return stable_diffusion_options
 
     def run_pipeline(
         self,
@@ -124,6 +161,7 @@ class Inference:
         is_text_output = result["updateInferenceJob"]["model"]["isTextOutput"]
         result["updateInferenceJob"]["model"]["isFileInput"]
         is_file_output = result["updateInferenceJob"]["model"]["isFileOutput"]
+        options = result["updateInferenceJob"]["options"]
 
         LOGGER.info(f""" [*] Model: {model_repo_id}.""")
         LOGGER.info(f""" [*] Text Input: '{text_input}'""")
@@ -152,6 +190,7 @@ class Inference:
             elif is_text_input and is_file_output:
                 SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / f"{inference_job_id}.png")
+                stable_diffusion_options = self._get_stable_diffusion_options(options)
                 was_guarded = False
                 if not save_at.exists():
                     pipe = DiffusionPipeline.from_pretrained(
@@ -181,21 +220,19 @@ class Inference:
 
                         latents = pipe(
                             prompt=text_input,
-                            # negative_prompt=negative_prompt,
-                            # num_images_per_prompt=num_images_per_prompt,
-                            # num_inference_steps=n_steps,
                             output_type="latent",
+                            **stable_diffusion_options,
                         ).images  # type: ignore
 
                         pipe_result = refiner(
                             prompt=text_input,
-                            # negative_prompt=negative_prompt,
-                            # num_images_per_prompt=num_images_per_prompt,
-                            # num_inference_steps=n_steps,
                             image=latents,  # type: ignore
+                            **stable_diffusion_options,
                         )  # type: ignore
                     else:
-                        pipe_result = pipe(text_input, return_dict=False)  # type:ignore
+                        pipe_result = pipe(
+                            text_input, return_dict=False, **stable_diffusion_options
+                        )  # type:ignore
 
                     # pipe returns a tuple in the form the first element is a list with
                     # the generated images, and the second element is a list of `bool`s
@@ -217,6 +254,7 @@ class Inference:
                     inference_job_id=inference_job_id,
                     status="COMPLETE",
                     file_outputs_ids=file_id,
+                    options=options,
                     was_guarded=was_guarded,
                 )
             LOGGER.info(f""" [*] COMPLETE. Result: " {result}""")
