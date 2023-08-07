@@ -44,7 +44,6 @@ class Inference:
         status: str,
         was_guarded: Optional[bool] = None,
         text_output: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None,
         file_outputs_ids: list[str] = [],
     ):
         mutation = gql(
