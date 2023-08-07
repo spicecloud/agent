@@ -6,14 +6,16 @@ from typing import Optional, Dict, Any
 
 from diffusers import (
     DiffusionPipeline,
-    StableDiffusionXLPipeline,
     StableDiffusionXLImg2ImgPipeline,
+    StableDiffusionXLPipeline,
 )
 from gql import gql
 from gql.transport.exceptions import TransportQueryError
-from torch.mps import empty_cache as mps_empty_cache
 
 from spice_agent.utils.config import SPICE_INFERENCE_DIRECTORY
+
+# from torch.mps import empty_cache as mps_empty_cache ## SAVE FOR LATER
+
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -143,6 +145,7 @@ class Inference:
         inference_job_id: str,
     ):  # noqa
         LOGGER.info(f""" [*] Inference Job ID: {inference_job_id}.""")
+
         result = self._update_inference_job(
             inference_job_id=inference_job_id,
             status="RUNNING",
@@ -171,9 +174,9 @@ class Inference:
         if torch.backends.mps.is_available():
             variant = "fp32"
             torch_dtype = torch.float32
-            mps_empty_cache()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        #     mps_empty_cache()
+        # if torch.cuda.is_available():
+        #     torch.cuda.empty_cache()
 
         response = None
         try:
