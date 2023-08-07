@@ -76,9 +76,7 @@ class Inference:
             """
         )
 
-        input: Dict[str, str | float | list[str]] = {
-            "inferenceJobId": inference_job_id
-        }
+        input: Dict[str, str | float | list[str]] = {"inferenceJobId": inference_job_id}
         if status is not None:
             input["status"] = status
         if was_guarded is not None:
@@ -126,13 +124,8 @@ class Inference:
             ]
 
         if "seed" in options:
-            # If seed is -1, we generate a random seed and update
-            # the inference job.
             # Note, completely reproducible results are not guaranteed across
             # PyTorch releases.
-            if options["seed"] == -1:
-                options["seed"] = torch.seed()
-
             stable_diffusion_options["generator"] = torch.manual_seed(options["seed"])
 
         return stable_diffusion_options
