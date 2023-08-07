@@ -126,7 +126,9 @@ class Inference:
         if "seed" in options:
             # Note, completely reproducible results are not guaranteed across
             # PyTorch releases.
-            stable_diffusion_options["generator"] = torch.manual_seed(options["seed"])
+            stable_diffusion_options["generator"] = torch.manual_seed(
+                int(options["seed"])
+            )
 
         return stable_diffusion_options
 
