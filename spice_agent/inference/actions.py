@@ -83,8 +83,6 @@ class Inference:
             input["status"] = status
         if was_guarded is not None:
             input["wasGuarded"] = was_guarded
-        if options is not None:
-            input["options"] = options
         if text_output is not None:
             input["textOutput"] = text_output
         if file_outputs_ids is not None or len(file_outputs_ids) > 0:
