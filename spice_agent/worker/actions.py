@@ -90,7 +90,7 @@ class Worker:
 
         message_acked = False
         if inference_job_id:
-            result = self.spice.inference._update_inference_job(
+            self.spice.inference._update_inference_job(
                 inference_job_id=inference_job_id, status="CLAIMED"
             )
             # ack message at inference level so another machine does not steal the
@@ -106,6 +106,12 @@ class Worker:
             )
             if result is not None:
                 LOGGER.info(" [*] Obtained training round.")
+                LOGGER.info(" [*] Stopping consumer, to begin training round.")
+                if channel:
+                    channel.basic_ack(delivery_tag=method.delivery_tag)
+                    message_acked = True
+                    channel.stop_consuming()
+                    channel.close()
 
         if training_round_step_id:
             result = self.spice.training._update_training_round_step(
@@ -113,16 +119,19 @@ class Worker:
             )
             if result is not None:
                 LOGGER.info(" [*] Obtained training round step.")
+                LOGGER.info(" [*] Stopping consumer, to begin training round step.")
+                if channel:
+                    channel.basic_ack(delivery_tag=method.delivery_tag)
+                    message_acked = True
+                    channel.stop_consuming()
+                    channel.close()
 
         if not message_acked and channel.is_open:
             channel.basic_ack(delivery_tag=method.delivery_tag)
-        else:
+        elif not message_acked and not channel.is_open:
             LOGGER.info(" [*] Channel closed already. Cannot ack message.")
-
-        LOGGER.info(" [*] Stopping worker...")
-        if self.channel:
-            self.channel.stop_consuming()
-            self.channel.close()
+        else:
+            pass
 
     def _create_channel(self):
         credentials = pika.PlainCredentials(
@@ -158,8 +167,27 @@ class Worker:
         if self.channel is None:
             raise Exception(" [*] Channel cannot be opened.")
 
+        self.channel.queue_declare(
+            queue=self.spice.host_config["fingerprint"],
+            exclusive=True,
+            durable=True,
+            auto_delete=True,
+        )
+
+        self.channel.queue_bind(
+            exchange="amq.headers",
+            queue=self.spice.host_config["fingerprint"],
+            arguments={
+                "x-match": "all",
+                "fingerprint": self.spice.host_config["fingerprint"],
+            },
+        )
+
+        self.spice.hardware.check_in_http(is_available=True, is_online=True)
+
         self.channel.basic_consume(
-            queue="default",
+            queue=self.spice.host_config["fingerprint"],
+            exclusive=True,
             on_message_callback=self._claim_message_callback,
         )
 
@@ -172,7 +200,7 @@ class Worker:
                 self.channel.stop_consuming()
                 self.channel.close()
                 self.channel = None
-            self.spice.hardware.check_in_http(is_available=False)
+            self.spice.hardware.check_in_http(is_available=False, is_online=False)
             sys.exit()
         except ConnectionClosedByBroker:
             LOGGER.info(" [*] Connection closed by Broker.")
@@ -180,23 +208,22 @@ class Worker:
                 self.channel.stop_consuming()
                 self.channel.close()
                 self.channel = None
-            self.spice.hardware.check_in_http(is_available=False)
+            self.spice.hardware.check_in_http(is_available=False, is_online=False)
         except Exception as exception:
             LOGGER.info(f"Exception: {exception}")
             if self.channel:
                 self.channel.stop_consuming()
                 self.channel.close()
                 self.channel = None
-            self.spice.hardware.check_in_http(is_available=False)
+            self.spice.hardware.check_in_http(is_available=False, is_online=False)
             raise exception
 
     def start(self):
         LOGGER.info(" [*] ✨ spice worker")
         LOGGER.info(f" [*] Version: {get_current_version()}")
+        self.spice.hardware.check_in_http(is_available=False, is_online=True)
         try:
             while True:
-                self.spice.hardware.check_in_http(is_available=True)
-
                 # check if this machine picked up a training round already
                 training_config = read_config_file(filepath=SPICE_TRAINING_FILEPATH)
 
@@ -257,5 +284,5 @@ class Worker:
                 self.channel.stop_consuming()
                 self.channel.close()
                 self.channel = None
-            self.spice.hardware.check_in_http(is_available=False)
+            self.spice.hardware.check_in_http(is_available=False, is_online=False)
             sys.exit()
