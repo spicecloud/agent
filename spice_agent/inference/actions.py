@@ -77,7 +77,7 @@ class Inference:
             """
         )
 
-        input: Dict[str, str | float | list[str] | Dict[str, Any]] = {
+        input: Dict[str, str | float | list[str]] = {
             "inferenceJobId": inference_job_id
         }
         if status is not None:
@@ -257,7 +257,6 @@ class Inference:
                     inference_job_id=inference_job_id,
                     status="COMPLETE",
                     file_outputs_ids=file_id,
-                    options=options,
                     was_guarded=was_guarded,
                 )
             LOGGER.info(f""" [*] COMPLETE. Result: " {result}""")
