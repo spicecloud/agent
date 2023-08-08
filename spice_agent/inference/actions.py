@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional, Dict, Any
 
 from diffusers import (
     DiffusionPipeline,
@@ -69,6 +69,7 @@ class Inference:
                         textInput
                         textOutput
                         wasGuarded
+                        options
                     }
                 }
             }
@@ -103,6 +104,34 @@ class Inference:
             else:
                 raise exception
 
+    def _get_stable_diffusion_options(self, options: Dict[str, Any]) -> dict:
+        """
+        Parses any inference options that may be defined for
+        StableDiffusionPipeline
+        """
+
+        stable_diffusion_options: dict = {}
+
+        if "negative_prompt" in options:
+            stable_diffusion_options["negative_prompt"] = options["negative_prompt"]
+
+        if "guidance_scale" in options:
+            stable_diffusion_options["guidance_scale"] = options["guidance_scale"]
+
+        if "num_inference_steps" in options:
+            stable_diffusion_options["num_inference_steps"] = options[
+                "num_inference_steps"
+            ]
+
+        if "seed" in options:
+            # Note, completely reproducible results are not guaranteed across
+            # PyTorch releases.
+            stable_diffusion_options["generator"] = torch.manual_seed(
+                int(options["seed"])
+            )
+
+        return stable_diffusion_options
+
     def run_pipeline(
         self,
         inference_job_id: str,
@@ -127,6 +156,7 @@ class Inference:
         is_text_output = result["updateInferenceJob"]["model"]["isTextOutput"]
         result["updateInferenceJob"]["model"]["isFileInput"]
         is_file_output = result["updateInferenceJob"]["model"]["isFileOutput"]
+        options = result["updateInferenceJob"]["options"]
 
         LOGGER.info(f""" [*] Model: {model_repo_id}.""")
         LOGGER.info(f""" [*] Text Input: '{text_input}'""")
@@ -155,6 +185,7 @@ class Inference:
             elif is_text_input and is_file_output:
                 SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / f"{inference_job_id}.png")
+                stable_diffusion_options = self._get_stable_diffusion_options(options)
                 was_guarded = False
                 if not save_at.exists():
                     pipe = DiffusionPipeline.from_pretrained(
@@ -184,21 +215,19 @@ class Inference:
 
                         latents = pipe(
                             prompt=text_input,
-                            # negative_prompt=negative_prompt,
-                            # num_images_per_prompt=num_images_per_prompt,
-                            # num_inference_steps=n_steps,
                             output_type="latent",
+                            **stable_diffusion_options,
                         ).images  # type: ignore
 
                         pipe_result = refiner(
                             prompt=text_input,
-                            # negative_prompt=negative_prompt,
-                            # num_images_per_prompt=num_images_per_prompt,
-                            # num_inference_steps=n_steps,
                             image=latents,  # type: ignore
+                            **stable_diffusion_options,
                         )  # type: ignore
                     else:
-                        pipe_result = pipe(text_input, return_dict=False)  # type:ignore
+                        pipe_result = pipe(
+                            text_input, return_dict=False, **stable_diffusion_options
+                        )  # type:ignore
 
                     # pipe returns a tuple in the form the first element is a list with
                     # the generated images, and the second element is a list of `bool`s
