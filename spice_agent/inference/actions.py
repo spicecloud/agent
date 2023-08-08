@@ -1,11 +1,13 @@
 import json
 import logging
 import os
+from compel import Compel, ReturnedEmbeddingsType
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 from diffusers import (
     DiffusionPipeline,
+    StableDiffusionPipeline,
     StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLPipeline,
 )
@@ -132,6 +134,133 @@ class Inference:
 
         return stable_diffusion_options
 
+    def _run_compel(self, compel: Compel, prompt: str, negative_prompt: str):
+        prompt_embeds = compel(prompt)
+        negative_prompt_embeds = compel(negative_prompt)
+
+        # Pad prompt embeds
+        [
+            padded_prompt_embeds,
+            padded_negative_prompt_embeds,
+        ] = compel.pad_conditioning_tensors_to_same_length(
+            [prompt_embeds, negative_prompt_embeds]
+        )
+
+        return (padded_prompt_embeds, padded_negative_prompt_embeds)
+
+    def _run_compel_with_pooling(
+        self, compel: Compel, prompt: str, negative_prompt: str
+    ):
+        # Get pooled embeddings
+        prompt_embeds, pooled_prompt_embeds = compel(prompt)
+        negative_prompt_embeds, pooled_negative_prompt_embeds = compel(negative_prompt)
+
+        # Pad prompt embeds
+        [
+            padded_prompt_embeds,
+            padded_negative_prompt_embeds,
+        ] = compel.pad_conditioning_tensors_to_same_length(
+            [prompt_embeds, negative_prompt_embeds]
+        )
+
+        return (
+            padded_prompt_embeds,
+            pooled_prompt_embeds,
+            padded_negative_prompt_embeds,
+            pooled_negative_prompt_embeds,
+        )
+
+    def _get_prompt_embeddings(
+        self, pipeline: DiffusionPipeline, prompt: str, negative_prompt: str = ""
+    ) -> dict:
+        """
+        Generates prompt embeddings for prompt and negative prompt. If this is not
+        possible, we simply return a dictionary containing the
+        prompt and negative prompt
+        """
+
+        compel = None
+        without_embeddings = {"prompt": prompt, "negative_prompt": negative_prompt}
+
+        if not isinstance(
+            pipeline,
+            (
+                StableDiffusionPipeline,
+                StableDiffusionXLPipeline,
+                StableDiffusionXLImg2ImgPipeline,
+            ),
+        ):
+            message = (
+                f"prompt embeddings are not supported for pipeline {type(pipeline)}"
+            )
+            LOGGER.warn(message)
+            return without_embeddings
+
+        # Check if we even need to do an embedding
+        if pipeline.tokenizer:
+            model_max_length = pipeline.tokenizer.model_max_length
+            if (
+                len(prompt) <= model_max_length
+                and len(negative_prompt) <= model_max_length
+            ):
+                return without_embeddings
+
+        if isinstance(pipeline, StableDiffusionPipeline):
+            compel = Compel(
+                truncate_long_prompts=False,
+                tokenizer=pipeline.tokenizer,
+                text_encoder=pipeline.text_encoder,
+                returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+                requires_pooled=False,
+            )
+
+            prompt_embeds, negative_prompt_embeds = self._run_compel(
+                compel, prompt, negative_prompt
+            )
+
+            return {
+                "prompt_embeds": prompt_embeds,
+                "negative_prompt_embeds": negative_prompt_embeds,
+            }
+
+        # Configure compel objects for StableDiffusionXL pipelines
+        if isinstance(pipeline, StableDiffusionXLPipeline):
+            compel = Compel(
+                truncate_long_prompts=False,
+                tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2],
+                text_encoder=[pipeline.text_encoder, pipeline.text_encoder_2],
+                returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+                requires_pooled=[False, True],
+            )
+
+        if isinstance(pipeline, StableDiffusionXLImg2ImgPipeline):
+            compel = Compel(
+                truncate_long_prompts=False,
+                tokenizer=pipeline.tokenizer_2,
+                text_encoder=pipeline.text_encoder_2,
+                returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+                requires_pooled=True,
+            )
+
+        if compel and isinstance(
+            pipeline, (StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline)
+        ):
+            (
+                prompt_embeds,
+                pooled_prompt_embeds,
+                negative_prompt_embeds,
+                negative_pooled_prompt_embeds,
+            ) = self._run_compel_with_pooling(compel, prompt, negative_prompt)
+
+            return {
+                "prompt_embeds": prompt_embeds,
+                "pooled_prompt_embeds": pooled_prompt_embeds,
+                "negative_prompt_embeds": negative_prompt_embeds,
+                "negative_pooled_prompt_embeds": negative_pooled_prompt_embeds,
+            }
+
+        return without_embeddings
+
     def run_pipeline(
         self,
         inference_job_id: str,
@@ -185,7 +314,16 @@ class Inference:
             elif is_text_input and is_file_output:
                 SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / f"{inference_job_id}.png")
+
                 stable_diffusion_options = self._get_stable_diffusion_options(options)
+                prompt = text_input
+                negative_prompt = ""
+                if "negative_prompt" in stable_diffusion_options:
+                    negative_prompt = stable_diffusion_options["negative_prompt"]
+                    # We remove the negative prompt from options since we will
+                    # track it in prompt embeddings
+                    stable_diffusion_options.pop("negative_prompt")
+
                 was_guarded = False
                 if not save_at.exists():
                     pipe = DiffusionPipeline.from_pretrained(
@@ -195,6 +333,11 @@ class Inference:
                         use_safetensors=True,
                     )
                     pipe = pipe.to(self.device)  # type: ignore
+
+                    # Configure prompt embeddings
+                    prompt_embeddings = self._get_prompt_embeddings(
+                        pipe, prompt, negative_prompt=negative_prompt
+                    )
 
                     # Configure MOE for xl diffusion base + refinement
                     if (
@@ -214,19 +357,25 @@ class Inference:
                         refiner = refiner.to(self.device)
 
                         latents = pipe(
-                            prompt=text_input,
                             output_type="latent",
                             **stable_diffusion_options,
+                            **prompt_embeddings,
                         ).images  # type: ignore
 
+                        prompt_embeddings_for_refiner = self._get_prompt_embeddings(
+                            refiner, prompt, negative_prompt=negative_prompt
+                        )
+
                         pipe_result = refiner(
-                            prompt=text_input,
                             image=latents,  # type: ignore
                             **stable_diffusion_options,
+                            **prompt_embeddings_for_refiner,
                         )  # type: ignore
                     else:
                         pipe_result = pipe(
-                            text_input, return_dict=False, **stable_diffusion_options
+                            return_dict=False,
+                            **stable_diffusion_options,
+                            **prompt_embeddings,
                         )  # type:ignore
 
                     # pipe returns a tuple in the form the first element is a list with
