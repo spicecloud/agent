@@ -4,7 +4,7 @@ import json
 import logging
 import platform
 import subprocess
-from typing import Dict
+from typing import Dict, List
 
 from aiohttp import client_exceptions
 import click
@@ -43,6 +43,40 @@ class Hardware:
             "physical_memory": data_type.get("physical_memory"),
             "apple_serial_number": data_type.get("serial_number"),
         }
+
+    def get_gpu_config(self) -> List:
+        """
+        For Nvidia based systems, nvidia-smi will be used to profile the gpu/s.
+        """
+        gpu_info = []
+
+        # Get nvidia gpu information
+        nvidia_smi_query_gpu_csv_command = "nvidia-smi --query-gpu=timestamp,gpu_name,driver_version,memory.total --format=csv"  # noqa
+        try:
+            nvidia_smi_query_gpu_csv_output = subprocess.check_output(
+                nvidia_smi_query_gpu_csv_command.split(" "),
+            )
+            nvidia_smi_query_gpu_csv_decoded = (
+                nvidia_smi_query_gpu_csv_output.decode("utf-8")
+                .replace("\r", "")
+                .replace(", ", ",")
+                .lstrip("\n")
+            )
+            nvidia_smi_query_gpu_csv_dict_reader = csv.DictReader(
+                io.StringIO(nvidia_smi_query_gpu_csv_decoded)
+            )
+
+            for gpu_info_item in nvidia_smi_query_gpu_csv_dict_reader:
+                # Refactor key
+                gpu_info_item["memory_total"] = gpu_info_item.pop("memory.total [MiB]")
+                gpu_info.append(gpu_info_item)
+
+        except subprocess.CalledProcessError as exception:
+            message = f"Command {nvidia_smi_query_gpu_csv_command} failed with exception: {exception}"  # noqa
+            # LOGGER.error(message)
+            raise exception
+
+        return gpu_info
 
     def get_windows_computer_service_product_values(self) -> Dict[str, str]:
         windows_computer_service_product_csv_command = (
@@ -133,6 +167,7 @@ class Hardware:
         system_info["machine"] = platform.machine()
         system_info["architecture"] = platform.architecture()[0]
         system_info["cpu_cores"] = str(platform.os.cpu_count())  # type: ignore exits
+        system_info["gpu_config"] = self.get_gpu_config()
         return system_info
 
     def register(self):
