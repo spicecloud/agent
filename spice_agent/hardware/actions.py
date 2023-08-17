@@ -114,6 +114,8 @@ class Hardware:
                     gpu_info["memory_total"] = gpu_info.pop("memory.total [MiB]")
                     gpu_config.append(gpu_info)
 
+                return gpu_config
+
             except subprocess.CalledProcessError as exception:
                 message = f"Command {nvidia_smi_query_gpu_csv_command} failed with exception: {exception}"  # noqa
                 LOGGER.error(message)
@@ -149,6 +151,8 @@ class Hardware:
                 gpu_info["memory_total"] = metal_device_json.get("physical_memory")
 
                 gpu_config.append(gpu_info)
+
+                return gpu_config
 
             except (subprocess.CalledProcessError, json.JSONDecodeError) as exception:
                 message = f"Command {system_profiler_hardware_data_type_command} failed with exception: {exception}"  # noqa
