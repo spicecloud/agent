@@ -15,17 +15,10 @@ if [ $? -ne 0 ]; then
     fi
 fi
 
-# ensure package and project versions match
-pytest -k test_version
+# ensure tests pass
+pytest
 if [ $? -ne 0 ]; then
-    echo "version mismatch. Aborting commit."
-    exit 1
-fi
-
-# ensure memory size tests pass
-pytest -k test_memory_size
-if [ $? -ne 0 ]; then
-    echo "memory size test errors. Aborting commit."
+    echo "test errors. Aborting commit."
     exit 1
 fi
 
