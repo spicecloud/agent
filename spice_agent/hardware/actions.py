@@ -11,6 +11,8 @@ from aiohttp import client_exceptions
 import click
 from gql import gql
 
+from spice_agent.utils.memory_size import MemorySize
+
 from spice_agent.utils.config import (
     SPICE_TRAINING_FILEPATH,
     read_config_file,
@@ -110,8 +112,12 @@ class Hardware:
                 )
 
                 for gpu_info in nvidia_smi_query_gpu_csv_dict_reader:
-                    # Refactor key
-                    gpu_info["memory_total"] = gpu_info.pop("memory.total [MiB]")
+                    # Refactor key into GB
+                    memory_total_in_mebibytes = gpu_info.pop("memory.total [MiB]")
+                    memory_size = MemorySize.from_string(memory_total_in_mebibytes)
+                    memory_size.convert_to("GB")
+                    gpu_info["memory_total"] = str(memory_size)
+
                     gpu_config.append(gpu_info)
 
                 return gpu_config
@@ -148,7 +154,12 @@ class Hardware:
 
                 gpu_info["timestamp"] = formatted_timestamp
                 gpu_info["name"] = metal_device_json.get("chip_type")
-                gpu_info["memory_total"] = metal_device_json.get("physical_memory")
+
+                # Refactor key into GB
+                physical_memory = metal_device_json.get("physical_memory")
+                memory_size = MemorySize.from_string(physical_memory)
+                memory_size.convert_to("GB")
+                gpu_info["memory_total"] = str(memory_size)
 
                 gpu_config.append(gpu_info)
 
