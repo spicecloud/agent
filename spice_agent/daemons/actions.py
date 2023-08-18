@@ -27,10 +27,7 @@ class Daemons:
         if self.os_family == "Darwin":
             full_launch_agent_install()
         elif self.os_family == "Linux":
-            if "WSL2" in platform.platform():
-                full_service_install()
-            else:
-                print("Not Implemented")
+            full_service_install()
         elif self.os_family == "Windows":
             print("Not Implemented")
         return result
@@ -40,10 +37,7 @@ class Daemons:
         if self.os_family == "Darwin":
             full_launch_agent_uninstall()
         elif self.os_family == "Linux":
-            if "WSL2" in platform.platform():
-                full_service_uninstall()
-            else:
-                print("Not Implemented")
+            full_service_uninstall()
         elif self.os_family == "Windows":
             print("Not Implemented")
         return result
@@ -53,10 +47,7 @@ class Daemons:
         if self.os_family == "Darwin":
             result = stop_launch_agent()
         elif self.os_family == "Linux":
-            if "WSL2" in platform.platform():
-                stop_service()
-            else:
-                print("Not Implemented")
+            stop_service()
         elif self.os_family == "Windows":
             print("Not Implemented")
         return result
@@ -66,10 +57,7 @@ class Daemons:
         if self.os_family == "Darwin":
             result = start_launch_agent()
         elif self.os_family == "Linux":
-            if "WSL2" in platform.platform():
-                start_service()
-            else:
-                print("Not Implemented")
+            start_service()
         elif self.os_family == "Windows":
             print("Not Implemented")
         return result
@@ -78,9 +66,6 @@ class Daemons:
         if self.os_family == "Darwin":
             view_launch_agent_logs()
         elif self.os_family == "Linux":
-            if "WSL2" in platform.platform():
-                view_service_logs()
-            else:
-                print("Not Implemented")
+            view_service_logs()
         elif self.os_family == "Windows":
             print("Not Implemented")
