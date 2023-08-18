@@ -48,12 +48,12 @@ class Hardware:
             "apple_serial_number": data_type.get("serial_number"),
         }
 
-    def _get_supported_metal_device(self) -> int:
+    def _get_supported_metal_device(self) -> int | None:
         """
         Checks if metal hardware is supported. If so, the index
         of the supported metal device is returned
         """
-        supported_metal_device = -1
+        supported_metal_device = None
         try:
             system_profiler_display_data_type_command = (
                 "system_profiler SPDisplaysDataType -json"
@@ -67,11 +67,11 @@ class Hardware:
 
             # Checks if any attached displays have metal support
             # Note, other devices here could be AMD GPUs or unconfigured Nvidia GPUs
-            for i, display in enumerate(
+            for index, display in enumerate(
                 system_profiler_display_data_type_json["SPDisplaysDataType"]
             ):
                 if "spdisplays_mtlgpufamilysupport" in display:
-                    supported_metal_device = i
+                    supported_metal_device = index
                     return supported_metal_device
             return supported_metal_device
         except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError):
@@ -120,7 +120,7 @@ class Hardware:
 
         # Check Metal gpu availability
         supported_metal_device = self._get_supported_metal_device()
-        if supported_metal_device != -1:
+        if supported_metal_device:
             # Since Apple's SoC contains Metal,
             # we query the system itself for total memory
             system_profiler_hardware_data_type_command = (
