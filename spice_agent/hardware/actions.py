@@ -5,6 +5,7 @@ import datetime
 import logging
 import platform
 import subprocess
+from shutil import which
 from typing import Dict, List
 
 from aiohttp import client_exceptions
@@ -47,17 +48,6 @@ class Hardware:
             "apple_serial_number": data_type.get("serial_number"),
         }
 
-    def _is_nvidia_smi_available(self) -> bool:
-        """
-        Checks if nvidia-smi is avaialble
-        """
-        try:
-            nvidia_smi_command = "nvidia-smi"
-            subprocess.check_output(nvidia_smi_command)
-            return True
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            return False
-
     def _get_supported_metal_device(self) -> int:
         """
         Checks if metal hardware is supported. If so, the index
@@ -95,7 +85,8 @@ class Hardware:
         gpu_config = []
 
         # Check nvidia gpu availability
-        if self._is_nvidia_smi_available():
+        is_nvidia_smi_available = bool(which("nvidia-smi"))
+        if is_nvidia_smi_available:
             nvidia_smi_query_gpu_csv_command = "nvidia-smi --query-gpu=timestamp,gpu_name,driver_version,memory.total --format=csv"  # noqa
             try:
                 nvidia_smi_query_gpu_csv_output = subprocess.check_output(
