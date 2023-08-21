@@ -57,24 +57,22 @@ class CompelEmbeddingsProvider:
             "device": self.device,
         }
 
-        pipe = self.pipeline
-
         # Currently, these are the only supported pipelines
         if not isinstance(
-            pipe,
+            self.pipeline,
             (
                 StableDiffusionPipeline,
                 StableDiffusionXLPipeline,
                 StableDiffusionXLImg2ImgPipeline,
             ),
         ):
-            message = f"Prompt embeddings are not supported for pipeline {type(pipe)}"
+            message = f"Prompt embeddings are not supported for pipeline {type(self.pipeline)}"
             LOGGER.warn(message)
             return None
 
         # Check if embeddings are necessary
-        if pipe.tokenizer:
-            model_max_length = pipe.tokenizer.model_max_length
+        if self.pipeline.tokenizer:
+            model_max_length = self.pipeline.tokenizer.model_max_length
             if (
                 len(self.prompt) <= model_max_length
                 and len(self.negative_prompt) <= model_max_length
@@ -82,29 +80,29 @@ class CompelEmbeddingsProvider:
                 return None
 
         # Configure compel objects for StableDiffusion pipeline
-        if isinstance(pipe, StableDiffusionPipeline):
+        if isinstance(self.pipeline, StableDiffusionPipeline):
             return Compel(
-                tokenizer=pipe.tokenizer,
-                text_encoder=pipe.text_encoder,
+                tokenizer=self.pipeline.tokenizer,
+                text_encoder=self.pipeline.text_encoder,
                 returned_embeddings_type=ReturnedEmbeddingsType.LAST_HIDDEN_STATES_NORMALIZED,
                 requires_pooled=False,
                 **DEFAULT_COMPEL_ARGUMENTS,
             )
 
         # Configure compel objects for StableDiffusionXL pipelines
-        if isinstance(pipe, StableDiffusionXLPipeline):
+        if isinstance(self.pipeline, StableDiffusionXLPipeline):
             return Compel(
-                tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
-                text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
+                tokenizer=[self.pipeline.tokenizer, self.pipeline.tokenizer_2],
+                text_encoder=[self.pipeline.text_encoder, self.pipeline.text_encoder_2],
                 returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
                 requires_pooled=[False, True],
                 **DEFAULT_COMPEL_ARGUMENTS,
             )
 
-        if isinstance(pipe, StableDiffusionXLImg2ImgPipeline):
+        if isinstance(self.pipeline, StableDiffusionXLImg2ImgPipeline):
             return Compel(
-                tokenizer=pipe.tokenizer_2,
-                text_encoder=pipe.text_encoder_2,
+                tokenizer=self.pipeline.tokenizer_2,
+                text_encoder=self.pipeline.text_encoder_2,
                 returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
                 requires_pooled=True,
                 **DEFAULT_COMPEL_ARGUMENTS,
