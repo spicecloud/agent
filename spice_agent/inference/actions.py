@@ -66,7 +66,7 @@ class CompelEmbeddingsProvider:
                 StableDiffusionXLImg2ImgPipeline,
             ),
         ):
-            message = f"Prompt embeddings are not supported for pipeline {type(self.pipeline)}"
+            message = f"Prompt embeddings are not supported for pipeline {type(self.pipeline)}"  # noqa
             LOGGER.warn(message)
             return None
 
@@ -147,7 +147,7 @@ class CompelEmbeddingsProvider:
 
         return embeddings
 
-    def __call__(self) -> dict:
+    def get_prompt_embedddings(self) -> dict:
         """
         Returns prompt embeddings if a compel object exists; otherwise,
         no embeddings are returned
@@ -333,8 +333,7 @@ class Inference:
                 stable_diffusion_options = self._get_stable_diffusion_options(options)
                 prompt = text_input
                 negative_prompt = ""
-                if "negative_prompt" in stable_diffusion_options:
-                    negative_prompt = stable_diffusion_options["negative_prompt"]
+                if negative_prompt := stable_diffusion_options["negative_prompt"]:
                     # We remove the negative prompt from options since we will
                     # track it in prompt embeddings
                     stable_diffusion_options.pop("negative_prompt")
@@ -350,12 +349,15 @@ class Inference:
                     pipe = pipe.to(self.device)  # type: ignore
 
                     # Generates prompt embeddings for Stable Diffusion Pipelines
-                    prompt_embeddings = CompelEmbeddingsProvider(
+                    compel_embeddings_provider = CompelEmbeddingsProvider(
                         pipeline=pipe,
                         device=self.device,
                         prompt=prompt,
                         negative_prompt=negative_prompt,
-                    )()
+                    )
+                    prompt_embeddings = (
+                        compel_embeddings_provider.get_prompt_embedddings()
+                    )
 
                     # Configure MOE for xl diffusion base + refinement
                     if (
@@ -379,12 +381,17 @@ class Inference:
                         refiner = refiner.to(self.device)
 
                         # Generates additional embeddings for refiner
-                        prompt_embeddings_for_refiner = CompelEmbeddingsProvider(
-                            pipeline=refiner,
-                            device=self.device,
-                            prompt=prompt,
-                            negative_prompt=negative_prompt,
-                        )()
+                        compel_embeddings_provider_for_refiner = (
+                            CompelEmbeddingsProvider(
+                                pipeline=refiner,
+                                device=self.device,
+                                prompt=prompt,
+                                negative_prompt=negative_prompt,
+                            )
+                        )
+                        prompt_embeddings_for_refiner = (
+                            compel_embeddings_provider_for_refiner.get_prompt_embedddings()
+                        )
 
                         pipe_result = refiner(
                             image=latents,  # type: ignore
