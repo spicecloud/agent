@@ -28,147 +28,134 @@ from transformers.pipelines.base import PipelineException  # noqa
 LOGGER = logging.getLogger(__name__)
 
 
-class CompelEmbeddingsProvider:
+def _init_compel(
+    device, pipeline: DiffusionPipeline, prompt: str, negative_prompt: str = ""
+) -> Compel:
     """
-    Provides embeddings for a pipeline
+    Initializes compel text embedding system based on type of pipeline.
     """
 
-    def __init__(
-        self,
-        pipeline: DiffusionPipeline,
-        device,
-        prompt: str,
-        negative_prompt: str = "",
-    ) -> None:
-        self.pipeline = pipeline
-        self.device = device
-        self.prompt = prompt
-        self.negative_prompt = negative_prompt
-        self.compel = self._init_compel()
+    # Compel settings consistent across compel objects
+    DEFAULT_COMPEL_ARGUMENTS = {
+        "truncate_long_prompts": False,
+        "device": device,
+    }
 
-    def _init_compel(self) -> Compel:
-        """
-        Initializes compel text embedding system based on type of pipeline.
-        """
-
-        # Compel settings consistent across compel objects
-        DEFAULT_COMPEL_ARGUMENTS = {
-            "truncate_long_prompts": False,
-            "device": self.device,
-        }
-
-        # Currently, these are the only supported pipelines
-        if not isinstance(
-            self.pipeline,
-            (
-                StableDiffusionPipeline,
-                StableDiffusionXLPipeline,
-                StableDiffusionXLImg2ImgPipeline,
-            ),
-        ):
-            message = f"Prompt embeddings are not supported for pipeline {type(self.pipeline)}"  # noqa
-            LOGGER.warn(message)
-            return None
-
-        # Check if embeddings are necessary
-        if self.pipeline.tokenizer:
-            model_max_length = self.pipeline.tokenizer.model_max_length
-            if (
-                len(self.prompt) <= model_max_length
-                and len(self.negative_prompt) <= model_max_length
-            ):
-                return None
-
-        # Configure compel objects for StableDiffusion pipeline
-        if isinstance(self.pipeline, StableDiffusionPipeline):
-            return Compel(
-                tokenizer=self.pipeline.tokenizer,
-                text_encoder=self.pipeline.text_encoder,
-                returned_embeddings_type=ReturnedEmbeddingsType.LAST_HIDDEN_STATES_NORMALIZED,
-                requires_pooled=False,
-                **DEFAULT_COMPEL_ARGUMENTS,
-            )
-
-        # Configure compel objects for StableDiffusionXL pipelines
-        if isinstance(self.pipeline, StableDiffusionXLPipeline):
-            return Compel(
-                tokenizer=[self.pipeline.tokenizer, self.pipeline.tokenizer_2],
-                text_encoder=[self.pipeline.text_encoder, self.pipeline.text_encoder_2],
-                returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-                requires_pooled=[False, True],
-                **DEFAULT_COMPEL_ARGUMENTS,
-            )
-
-        if isinstance(self.pipeline, StableDiffusionXLImg2ImgPipeline):
-            return Compel(
-                tokenizer=self.pipeline.tokenizer_2,
-                text_encoder=self.pipeline.text_encoder_2,
-                returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-                requires_pooled=True,
-                **DEFAULT_COMPEL_ARGUMENTS,
-            )
-
+    # Currently, these are the only supported pipelines
+    if not isinstance(
+        pipeline,
+        (
+            StableDiffusionPipeline,
+            StableDiffusionXLPipeline,
+            StableDiffusionXLImg2ImgPipeline,
+        ),
+    ):
+        message = (
+            f"Prompt embeddings are not supported for pipeline {type(pipeline)}"  # noqa
+        )
+        LOGGER.warn(message)
         return None
 
-    def _run_compel(self) -> dict:
-        prompt_embeds = None
-        pooled_prompt_embeds = None
-        negative_prompt_embeds = None
-        negative_pooled_prompt_embeds = None
+    # Check if embeddings are necessary
+    if pipeline.tokenizer:
+        model_max_length = pipeline.tokenizer.model_max_length
+        if len(prompt) <= model_max_length and len(negative_prompt) <= model_max_length:
+            return None
 
-        if self.compel.requires_pooled:
-            # Get pooled embeddings
-            prompt_embeds, pooled_prompt_embeds = self.compel(self.prompt)
-            negative_prompt_embeds, negative_pooled_prompt_embeds = self.compel(
-                self.negative_prompt
-            )
-        else:
-            prompt_embeds = self.compel(self.prompt)
-            negative_prompt_embeds = self.compel(self.negative_prompt)
-
-        # Pad prompt embeds
-        [
-            padded_prompt_embeds,
-            padded_negative_prompt_embeds,
-        ] = self.compel.pad_conditioning_tensors_to_same_length(
-            [prompt_embeds, negative_prompt_embeds]
+    # Configure compel objects for StableDiffusion pipeline
+    if isinstance(pipeline, StableDiffusionPipeline):
+        return Compel(
+            tokenizer=pipeline.tokenizer,
+            text_encoder=pipeline.text_encoder,
+            returned_embeddings_type=ReturnedEmbeddingsType.LAST_HIDDEN_STATES_NORMALIZED,
+            requires_pooled=False,
+            **DEFAULT_COMPEL_ARGUMENTS,
         )
 
-        embeddings = {
-            "prompt_embeds": padded_prompt_embeds,
-            "negative_prompt_embeds": padded_negative_prompt_embeds,
-        }
+    # Configure compel objects for StableDiffusionXL pipelines
+    if isinstance(pipeline, StableDiffusionXLPipeline):
+        return Compel(
+            tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2],
+            text_encoder=[pipeline.text_encoder, pipeline.text_encoder_2],
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=[False, True],
+            **DEFAULT_COMPEL_ARGUMENTS,
+        )
 
-        if pooled_prompt_embeds is not None:
-            embeddings["pooled_prompt_embeds"] = pooled_prompt_embeds
+    if isinstance(pipeline, StableDiffusionXLImg2ImgPipeline):
+        return Compel(
+            tokenizer=pipeline.tokenizer_2,
+            text_encoder=pipeline.text_encoder_2,
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=True,
+            **DEFAULT_COMPEL_ARGUMENTS,
+        )
 
-        if negative_pooled_prompt_embeds is not None:
-            embeddings["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds
+    return None
 
-        return embeddings
 
-    def get_prompt_embedddings(self) -> dict:
-        """
-        Returns prompt embeddings if a compel object exists; otherwise,
-        no embeddings are returned
-        """
+def _run_compel(compel: Compel, prompt: str, negative_prompt: str = "") -> dict:
+    prompt_embeds = None
+    pooled_prompt_embeds = None
+    negative_prompt_embeds = None
+    negative_pooled_prompt_embeds = None
 
-        LOGGER.info(""" [*] Generating embeddings. (Ignore token indices complaint)""")
+    if compel.requires_pooled:
+        # Get pooled embeddings
+        prompt_embeds, pooled_prompt_embeds = compel(prompt)
+        negative_prompt_embeds, negative_pooled_prompt_embeds = compel(negative_prompt)
+    else:
+        prompt_embeds = compel(prompt)
+        negative_prompt_embeds = compel(negative_prompt)
 
-        self.without_embeddings = {
-            "prompt": self.prompt,
-            "negative_prompt": self.negative_prompt,
-        }
+    # Pad prompt embeds
+    [
+        padded_prompt_embeds,
+        padded_negative_prompt_embeds,
+    ] = compel.pad_conditioning_tensors_to_same_length(
+        [prompt_embeds, negative_prompt_embeds]
+    )
 
-        if self.compel:
-            try:
-                return self._run_compel()
-            except Exception as exception:
-                LOGGER.error(
-                    f""" [*] Embedding generation failed with exception {exception}! Falling back to normal prompt."""  # noqa
-                )
+    embeddings = {
+        "prompt_embeds": padded_prompt_embeds,
+        "negative_prompt_embeds": padded_negative_prompt_embeds,
+    }
 
-        return self.without_embeddings
+    if pooled_prompt_embeds is not None:
+        embeddings["pooled_prompt_embeds"] = pooled_prompt_embeds
+
+    if negative_pooled_prompt_embeds is not None:
+        embeddings["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds
+
+    return embeddings
+
+
+def get_prompt_embedddings(
+    device, pipeline: DiffusionPipeline, prompt: str, negative_prompt: str = ""
+) -> dict:
+    """
+    Returns prompt embeddings if a compel object exists; otherwise,
+    no embeddings are returned
+    """
+
+    LOGGER.info(""" [*] Generating embeddings. (Ignore token indices complaint)""")
+
+    without_embeddings = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+    }
+
+    compel = _init_compel(device, pipeline, prompt, negative_prompt)
+
+    if compel:
+        try:
+            return _run_compel(compel, prompt, negative_prompt)
+        except Exception as exception:
+            LOGGER.error(
+                f""" [*] Embedding generation failed with exception {exception}! Falling back to normal prompt."""  # noqa
+            )
+
+    return without_embeddings
 
 
 class Inference:
@@ -349,14 +336,8 @@ class Inference:
                     pipe = pipe.to(self.device)  # type: ignore
 
                     # Generates prompt embeddings for Stable Diffusion Pipelines
-                    compel_embeddings_provider = CompelEmbeddingsProvider(
-                        pipeline=pipe,
-                        device=self.device,
-                        prompt=prompt,
-                        negative_prompt=negative_prompt,
-                    )
-                    prompt_embeddings = (
-                        compel_embeddings_provider.get_prompt_embedddings()
+                    prompt_embeddings = get_prompt_embedddings(
+                        self.device, pipe, prompt, negative_prompt
                     )
 
                     # Configure MOE for xl diffusion base + refinement
@@ -381,16 +362,8 @@ class Inference:
                         refiner = refiner.to(self.device)
 
                         # Generates additional embeddings for refiner
-                        compel_embeddings_provider_for_refiner = (
-                            CompelEmbeddingsProvider(
-                                pipeline=refiner,
-                                device=self.device,
-                                prompt=prompt,
-                                negative_prompt=negative_prompt,
-                            )
-                        )
-                        prompt_embeddings_for_refiner = (
-                            compel_embeddings_provider_for_refiner.get_prompt_embedddings()
+                        prompt_embeddings_for_refiner = get_prompt_embedddings(
+                            self.device, refiner, prompt, negative_prompt
                         )
 
                         pipe_result = refiner(
