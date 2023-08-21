@@ -126,7 +126,7 @@ class Hardware:
             for gpu_info in nvidia_smi_query_gpu_csv_dict_reader:
                 # Refactor key into GB
                 memory_total_in_mebibytes = gpu_info.pop("memory.total [MiB]")
-                memory_size = MemorySize.from_string(memory_total_in_mebibytes)
+                memory_size = MemorySize(memory_total_in_mebibytes)
                 memory_size.convert_to("GB")
                 gpu_info["memory_total"] = str(memory_size)
 
@@ -170,7 +170,7 @@ class Hardware:
 
             # Refactor key into GB
             physical_memory = metal_device_json.get("physical_memory")
-            memory_size = MemorySize.from_string(physical_memory)
+            memory_size = MemorySize(physical_memory)
             memory_size.convert_to("GB")
             gpu_info["memory_total"] = str(memory_size)
 

@@ -1,5 +1,5 @@
 class MemorySize:
-    CONVERSION_FACTORS = {
+    CONVERSION_FACTORS: dict[str, float] = {
         "b": 1 / 8,
         "B": 1,
         "KB": 1024,
@@ -14,9 +14,34 @@ class MemorySize:
         "PiB": 2**50,
     }
 
-    def __init__(self, value, unit):
-        self.value = value
-        self.unit = unit
+    def __init__(self, value_or_string: int | float | str, unit: str | None = None):
+        """
+        Initializes MemorySize in two ways:
+            size = MemorySize("3.14 GB") - value_or_string is str and unit is None
+            size = MemorySize(42, "MB") - value_or_string is int and unit is str
+            size = MemorySize(2.718, "PB") - value_or_string is float and unit is str
+        """
+        if isinstance(value_or_string, str):
+            parts = value_or_string.split()
+            if len(parts) != 2:
+                raise ValueError(f"Invalid size string format: {value_or_string}")
+
+            value_string, unit = parts
+            try:
+                self.value = float(value_string)
+            except ValueError:
+                raise ValueError(f"Invalid size value: {value_string}")
+            self.unit = unit
+        elif isinstance(value_or_string, int | float) and isinstance(unit, str):
+            self.value = float(value_or_string)
+            self.unit = unit
+        else:
+            message = f"Invalid arguments provided: {value_or_string}:{type(value_or_string)} and {unit}:{type(unit)}"  # noqa
+            raise ValueError(message)
+
+        if not self.CONVERSION_FACTORS.get(self.unit):
+            message = f"Invalid unit: {self.unit}"
+            raise ValueError(message)
 
     def __str__(self):
         return f"{self.value:.3f} {self.unit}"
@@ -30,7 +55,7 @@ class MemorySize:
         """
         Converts value to bytes (B)
         """
-        return self.value * self.CONVERSION_FACTORS.get(self.unit)
+        return self.value * self.CONVERSION_FACTORS.get(self.unit, 1)
 
     def convert_to(self, target_unit):
         """
@@ -44,20 +69,3 @@ class MemorySize:
         )
         self.value *= factor
         self.unit = target_unit
-
-    @classmethod
-    def from_string(cls, size_string):
-        """
-        Creates a MemorySize instance from a size string.
-        """
-        parts = size_string.split()
-        if len(parts) != 2:
-            raise ValueError(f"Invalid size string format: {size_string}")
-
-        value_string, unit = parts
-        try:
-            value = float(value_string)
-        except ValueError:
-            raise ValueError(f"Invalid size value: {value_string}")
-
-        return cls(value, unit)
