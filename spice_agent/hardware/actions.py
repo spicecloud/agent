@@ -54,16 +54,28 @@ class Hardware:
         of the supported metal device is returned
         """
         supported_metal_device = None
-        try:
+        is_system_profiler_available = bool(which("system_profiler"))
+        if is_system_profiler_available:
             system_profiler_display_data_type_command = (
                 "system_profiler SPDisplaysDataType -json"
             )
-            system_profiler_display_data_type_output = subprocess.check_output(
-                system_profiler_display_data_type_command.split(" ")
-            )
-            system_profiler_display_data_type_json = json.loads(
-                system_profiler_display_data_type_output
-            )
+            try:
+                system_profiler_display_data_type_output = subprocess.check_output(
+                    system_profiler_display_data_type_command.split(" ")
+                )
+            except subprocess.CalledProcessError as exception:
+                message = f"Error running system_profiler: {exception}"
+                LOGGER.error(message)
+                return supported_metal_device
+
+            try:
+                system_profiler_display_data_type_json = json.loads(
+                    system_profiler_display_data_type_output
+                )
+            except json.JSONDecodeError as exception:
+                message = f"Error decoding JSON: {exception}"
+                LOGGER.error(message)
+                return supported_metal_device
 
             # Checks if any attached displays have metal support
             # Note, other devices here could be AMD GPUs or unconfigured Nvidia GPUs
@@ -73,9 +85,8 @@ class Hardware:
                 if "spdisplays_mtlgpufamilysupport" in display:
                     supported_metal_device = index
                     return supported_metal_device
-            return supported_metal_device
-        except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError):
-            return supported_metal_device
+
+        return supported_metal_device
 
     def get_gpu_config(self) -> List:
         """
