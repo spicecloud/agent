@@ -1,7 +1,6 @@
 import csv
 import io
 import json
-import datetime
 import logging
 import platform
 import subprocess
