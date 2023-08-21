@@ -98,36 +98,42 @@ class Hardware:
         # Check nvidia gpu availability
         is_nvidia_smi_available = bool(which("nvidia-smi"))
         if is_nvidia_smi_available:
-            nvidia_smi_query_gpu_csv_command = "nvidia-smi --query-gpu=timestamp,gpu_name,driver_version,memory.total --format=csv"  # noqa
+            nvidia_smi_query_gpu_csv_command = "nvidia-smi --query-gpu=gpu_name,driver_version,memory.total --format=csv"  # noqa
             try:
                 nvidia_smi_query_gpu_csv_output = subprocess.check_output(
                     nvidia_smi_query_gpu_csv_command.split(" "),
                 )
+            except subprocess.CalledProcessError as exception:
+                message = f"Command {nvidia_smi_query_gpu_csv_command} failed with exception: {exception}"  # noqa
+                LOGGER.error(message)
+                raise exception
+
+            try:
                 nvidia_smi_query_gpu_csv_decoded = (
                     nvidia_smi_query_gpu_csv_output.decode("utf-8")
                     .replace("\r", "")
                     .replace(", ", ",")
                     .lstrip("\n")
                 )
-                nvidia_smi_query_gpu_csv_dict_reader = csv.DictReader(
-                    io.StringIO(nvidia_smi_query_gpu_csv_decoded)
-                )
-
-                for gpu_info in nvidia_smi_query_gpu_csv_dict_reader:
-                    # Refactor key into GB
-                    memory_total_in_mebibytes = gpu_info.pop("memory.total [MiB]")
-                    memory_size = MemorySize.from_string(memory_total_in_mebibytes)
-                    memory_size.convert_to("GB")
-                    gpu_info["memory_total"] = str(memory_size)
-
-                    gpu_config.append(gpu_info)
-
-                return gpu_config
-
-            except subprocess.CalledProcessError as exception:
-                message = f"Command {nvidia_smi_query_gpu_csv_command} failed with exception: {exception}"  # noqa
+            except UnicodeDecodeError as exception:
+                message = f"Error decoding: {exception}"
                 LOGGER.error(message)
                 raise exception
+
+            nvidia_smi_query_gpu_csv_dict_reader = csv.DictReader(
+                io.StringIO(nvidia_smi_query_gpu_csv_decoded)
+            )
+
+            for gpu_info in nvidia_smi_query_gpu_csv_dict_reader:
+                # Refactor key into GB
+                memory_total_in_mebibytes = gpu_info.pop("memory.total [MiB]")
+                memory_size = MemorySize.from_string(memory_total_in_mebibytes)
+                memory_size.convert_to("GB")
+                gpu_info["memory_total"] = str(memory_size)
+
+                gpu_config.append(gpu_info)
+
+            return gpu_config
 
         # Check Metal gpu availability
         supported_metal_device = self._get_supported_metal_device()
@@ -142,35 +148,36 @@ class Hardware:
                 system_profiler_hardware_data_type_output = subprocess.check_output(
                     system_profiler_hardware_data_type_command.split(" ")
                 )
+            except subprocess.CalledProcessError as exception:
+                message = f"Error running {system_profiler_hardware_data_type_command}: {exception}"  # noqa
+                LOGGER.error(message)
+                raise exception
+
+            try:
                 system_profiler_hardware_data_type_json = json.loads(
                     system_profiler_hardware_data_type_output
                 )
-
-                metal_device_json = system_profiler_hardware_data_type_json[
-                    "SPHardwareDataType"
-                ][supported_metal_device]
-
-                gpu_info = {}
-                timestamp = datetime.datetime.now()
-                formatted_timestamp = timestamp.strftime("%Y/%m/%d %H:%M:%S")
-
-                gpu_info["timestamp"] = formatted_timestamp
-                gpu_info["name"] = metal_device_json.get("chip_type")
-
-                # Refactor key into GB
-                physical_memory = metal_device_json.get("physical_memory")
-                memory_size = MemorySize.from_string(physical_memory)
-                memory_size.convert_to("GB")
-                gpu_info["memory_total"] = str(memory_size)
-
-                gpu_config.append(gpu_info)
-
-                return gpu_config
-
-            except (subprocess.CalledProcessError, json.JSONDecodeError) as exception:
-                message = f"Command {system_profiler_hardware_data_type_command} failed with exception: {exception}"  # noqa
+            except json.JSONDecodeError as exception:
+                message = f"Error decoding JSON: {exception}"  # noqa
                 LOGGER.error(message)
                 raise exception
+
+            metal_device_json = system_profiler_hardware_data_type_json[
+                "SPHardwareDataType"
+            ][supported_metal_device]
+
+            gpu_info = {}
+            gpu_info["name"] = metal_device_json.get("chip_type")
+
+            # Refactor key into GB
+            physical_memory = metal_device_json.get("physical_memory")
+            memory_size = MemorySize.from_string(physical_memory)
+            memory_size.convert_to("GB")
+            gpu_info["memory_total"] = str(memory_size)
+
+            gpu_config.append(gpu_info)
+
+            return gpu_config
 
         # Raise an error if there is no valid gpu config
         if not gpu_config:
