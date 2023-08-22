@@ -3,8 +3,8 @@ import logging
 import os
 from compel import Compel, ReturnedEmbeddingsType
 from pathlib import Path
-from typing import Optional, Dict, Union, List, Any, Tuple
-from dataclasses import dataclass, asdict
+from typing import Optional, Dict, Any, Type, Union
+from dataclasses import asdict
 
 from diffusers import (
     DiffusionPipeline,
@@ -15,10 +15,22 @@ from diffusers import (
 from gql import gql
 from gql.transport.exceptions import TransportQueryError
 
+from spice_agent.inference.types import (
+    CallbackOptionsBase,
+    InputForStableDiffusionPipeline,
+    InputForStableDiffusionXLPipeline,
+    InputForStableDiffusionXLImg2ImgPipeline,
+    InferenceOptionsForStableDiffusionPipeline,
+    InferenceOptionsForStableDiffusionXLPipeline,
+    InferenceOptionsForStableDiffusionXLImg2ImgPipeline,
+    StableDiffusionPipelineInput,
+    StableDiffusionXLPipelineInput,
+    StableDiffusionXLImg2ImgPipelineInput,
+    OutputForStableDiffusionPipeline,
+)
 from spice_agent.utils.config import SPICE_INFERENCE_DIRECTORY
 
 # from torch.mps import empty_cache as mps_empty_cache ## SAVE FOR LATER
-
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -27,36 +39,6 @@ import transformers  # noqa
 from transformers.pipelines.base import PipelineException  # noqa
 
 LOGGER = logging.getLogger(__name__)
-
-
-@dataclass
-class PromptOptionsForStableDiffusionPipeline:
-    """
-    Currently prompt options for a diffusion pipeline are specified in two ways:
-    1. Construct options with prompt and negative_prompt
-    2. Construct options with embeddings
-    """
-
-    prompt: Optional[Union[str, List[str]]] = None
-    negative_prompt: Optional[Union[str, List[str]]] = None
-    prompt_embeds: Optional[torch.FloatTensor] = None
-    negative_prompt_embeds: Optional[torch.FloatTensor] = None
-    pooled_prompt_embeds: Optional[torch.FloatTensor] = None
-    negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None
-
-
-@dataclass
-class InferenceOptionsForStableDiffusionPipeline:
-    height: Optional[int] = None
-    width: Optional[int] = None
-    num_inference_steps: int = 32
-    guidance_scale: float = 7.0
-    num_images_per_prompt: Optional[int] = 1
-    generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None
-    cross_attention_kwargs: Optional[Dict[str, Any]] = None
-    guidance_rescale: float = 0.0
-    original_size: Optional[Tuple[int, int]] = None
-    target_size: Optional[Tuple[int, int]] = None
 
 
 def _init_compel(
@@ -127,7 +109,7 @@ def _init_compel(
 
 def _run_compel(
     compel: Compel, prompt: str, negative_prompt: str = ""
-) -> PromptOptionsForStableDiffusionPipeline:
+) -> InputForStableDiffusionXLPipeline:
     prompt_embeds = None
     pooled_prompt_embeds = None
     negative_prompt_embeds = None
@@ -149,7 +131,7 @@ def _run_compel(
         [prompt_embeds, negative_prompt_embeds]
     )
 
-    embeddings = PromptOptionsForStableDiffusionPipeline(
+    embeddings = InputForStableDiffusionXLPipeline(
         prompt_embeds=padded_prompt_embeds,
         negative_prompt_embeds=padded_negative_prompt_embeds,
         pooled_prompt_embeds=pooled_prompt_embeds,
@@ -159,9 +141,9 @@ def _run_compel(
     return embeddings
 
 
-def get_prompt_options_for_diffusion_pipeline(
+def get_input_for_stable_diffusion_pipeline(
     device, pipeline: DiffusionPipeline, prompt: str, negative_prompt: str = ""
-) -> PromptOptionsForStableDiffusionPipeline:
+) -> InputForStableDiffusionPipeline | InputForStableDiffusionXLPipeline:
     """
     Returns prompt options for embeddings if a compel object exists; otherwise,
     prompt options without embeddings are returned
@@ -169,7 +151,7 @@ def get_prompt_options_for_diffusion_pipeline(
 
     LOGGER.info(""" [*] Generating embeddings. (Ignore token indices complaint)""")
 
-    without_embeddings = PromptOptionsForStableDiffusionPipeline(
+    without_embeddings = InputForStableDiffusionPipeline(
         prompt=prompt, negative_prompt=negative_prompt
     )
     compel = _init_compel(device, pipeline, prompt, negative_prompt)
@@ -262,31 +244,61 @@ class Inference:
             else:
                 raise exception
 
-    def _get_stable_diffusion_options(
-        self, options: Dict[str, Any]
-    ) -> InferenceOptionsForStableDiffusionPipeline:
-        """
-        Parses any inference options that may be defined for
-        StableDiffusionPipeline.
-        """
-
-        stable_diffusion_options: dict = {
-            "guidance_scale": options.get("guidance_scale"),
-            "num_inference_steps": options.get("num_inference_steps"),
+    def _get_filtered_options(
+        self,
+        options: Dict[str, Any],
+        inference_options: Type[
+            Union[
+                InferenceOptionsForStableDiffusionPipeline,
+                InferenceOptionsForStableDiffusionXLPipeline,
+                InferenceOptionsForStableDiffusionXLImg2ImgPipeline,
+            ]
+        ],
+    ) -> Dict[str, Any]:
+        return {
+            key: value
+            for key, value in options.items()
+            if key in inference_options.__annotations__
         }
 
-        if "seed" in options:
-            # Note, completely reproducible results are not guaranteed across
-            # PyTorch releases.
-            stable_diffusion_options["generator"] = torch.manual_seed(
-                int(options["seed"])
+    def _get_inference_options_for_stable_diffusion(
+        self, pipeline: DiffusionPipeline, options: Dict[str, Any]
+    ) -> Union[
+        InferenceOptionsForStableDiffusionPipeline,
+        InferenceOptionsForStableDiffusionXLPipeline,
+        InferenceOptionsForStableDiffusionXLPipeline,
+    ]:
+        """
+        Parses any inference options that may be defined for
+        a stable diffusion pipeline.
+        """
+
+        if isinstance(pipeline, StableDiffusionPipeline):
+            filtered_options = self._get_filtered_options(
+                options, InferenceOptionsForStableDiffusionPipeline
+            )
+            return InferenceOptionsForStableDiffusionPipeline(**filtered_options)
+        elif isinstance(pipeline, StableDiffusionXLPipeline):
+            filtered_options = self._get_filtered_options(
+                options, InferenceOptionsForStableDiffusionXLPipeline
+            )
+            return InferenceOptionsForStableDiffusionXLPipeline(**filtered_options)
+        elif isinstance(pipeline, StableDiffusionXLImg2ImgPipeline):
+            filtered_options = self._get_filtered_options(
+                options, InferenceOptionsForStableDiffusionXLImg2ImgPipeline
+            )
+            return InferenceOptionsForStableDiffusionXLImg2ImgPipeline(
+                **filtered_options
+            )
+        else:
+            raise ValueError(
+                f"Pipeline {type(pipeline).__name__} has no supported inference options!"  # noqa
             )
 
-        inference_options_for_stable_diffusion_pipeline = (
-            InferenceOptionsForStableDiffusionPipeline(**stable_diffusion_options)
-        )
-
-        return inference_options_for_stable_diffusion_pipeline
+    def _get_generator(self, seed: int) -> torch.Generator:
+        # Note, completely reproducible results are not guaranteed across
+        # PyTorch releases.
+        return torch.manual_seed(seed)
 
     def run_pipeline(
         self,
@@ -344,7 +356,7 @@ class Inference:
 
                 prompt = text_input
                 negative_prompt = options.get("negative_prompt", "")
-                stable_diffusion_options = self._get_stable_diffusion_options(options)
+                generator = self._get_generator(int(options.get("seed", -1)))
 
                 was_guarded = False
                 if not save_at.exists():
@@ -356,20 +368,94 @@ class Inference:
                     )
                     pipe = pipe.to(self.device)  # type: ignore
 
-                    # Get prompt embeddings for Stable Diffusion Pipelines
-                    prompt_options = get_prompt_options_for_diffusion_pipeline(
-                        self.device, pipe, prompt, negative_prompt
+                    # Get input for Stable Diffusion Pipelines
+                    input_for_stable_diffusion_pipeline = (
+                        get_input_for_stable_diffusion_pipeline(
+                            self.device, pipe, prompt, negative_prompt
+                        )
                     )
 
-                    # Configure MOE for xl diffusion base + refinement
-                    if (
-                        isinstance(pipe, StableDiffusionXLPipeline)
-                        and "stabilityai/stable-diffusion-xl-base-1.0"
-                    ):
-                        latents = pipe(
+                    # Get callback options
+                    callback_options = CallbackOptionsBase()
+
+                    # Configure Stable Diffusion TASK
+                    if isinstance(pipe, StableDiffusionPipeline):
+                        # Configure inference options for stable diffusion pipeline
+                        inference_options_for_stable_diffusion = (
+                            self._get_inference_options_for_stable_diffusion(
+                                pipe, options
+                            )
+                        )
+
+                        # Configure output for stable diffusion pipeline
+                        output_for_stable_diffusion_pipeline = OutputForStableDiffusionPipeline(
+                            # generator=generator,
+                            return_dict=False,
+                        )
+
+                        # Specify input for stable diffusion pipeline
+                        stable_diffusion_pipeline_input = StableDiffusionPipelineInput(
+                            input=input_for_stable_diffusion_pipeline,
+                            inference_options=inference_options_for_stable_diffusion,
+                            callback_options=callback_options,
+                            output=output_for_stable_diffusion_pipeline,
+                        )
+
+                        pipe_result = pipe(
+                            **asdict(stable_diffusion_pipeline_input.input),
+                            **asdict(stable_diffusion_pipeline_input.inference_options),
+                            **asdict(stable_diffusion_pipeline_input.callback_options),
+                            **asdict(stable_diffusion_pipeline_input.output),
+                            generator=generator,
+                        )  # type:ignore
+                    # Configure MOE for xl diffusion base + refinement TASK
+                    elif isinstance(pipe, StableDiffusionXLPipeline):
+                        # Configure input for stable diffusion xl pipeline
+                        input_for_stable_diffusion_xl = (
+                            InputForStableDiffusionXLPipeline(
+                                **asdict(input_for_stable_diffusion_pipeline)
+                            )
+                        )
+
+                        # Configure inference options for stable diffusion xl pipeline
+                        inference_options_for_stable_diffusion_xl = (
+                            self._get_inference_options_for_stable_diffusion(
+                                pipe, options
+                            )
+                        )
+
+                        if not isinstance(
+                            inference_options_for_stable_diffusion_xl,
+                            InferenceOptionsForStableDiffusionXLPipeline,
+                        ):
+                            raise ValueError(
+                                f"Inference options are incorrectly configured for {StableDiffusionPipeline.__name__}"  # noqa
+                            )
+
+                        # Configure output for stable diffusion xl pipeline
+                        output_for_stable_diffusion_xl_pipeline = OutputForStableDiffusionPipeline(  # noqa
                             output_type="latent",
-                            **asdict(stable_diffusion_options),
-                            **asdict(prompt_options),
+                            # generator=generator,
+                        )
+
+                        # Specify input for stable diffusion xl pipeline
+                        stable_diffusion_pipeline_xl_input = StableDiffusionXLPipelineInput(  # noqa
+                            input=input_for_stable_diffusion_xl,
+                            inference_options=inference_options_for_stable_diffusion_xl,
+                            callback_options=callback_options,
+                            output=output_for_stable_diffusion_xl_pipeline,
+                        )
+
+                        latents = pipe(
+                            **asdict(stable_diffusion_pipeline_xl_input.input),
+                            **asdict(
+                                stable_diffusion_pipeline_xl_input.inference_options
+                            ),
+                            **asdict(
+                                stable_diffusion_pipeline_xl_input.callback_options
+                            ),
+                            **asdict(stable_diffusion_pipeline_xl_input.output),
+                            generator=generator,
                         ).images  # type: ignore
 
                         refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
@@ -382,24 +468,61 @@ class Inference:
                         )
                         refiner = refiner.to(self.device)
 
-                        # Generates additional embeddings for refiner
-                        prompt_options_for_refiner = (
-                            get_prompt_options_for_diffusion_pipeline(
-                                self.device, refiner, prompt, negative_prompt
+                        # Configure input for stable diffusion xl img2img pipeline
+                        input_for_stable_diffusion_xl_img2img = (
+                            InputForStableDiffusionXLImg2ImgPipeline(
+                                image=latents, **asdict(input_for_stable_diffusion_xl)
                             )
                         )
 
+                        # Configure inference options for stable diffusion xl img2img pipeline # noqa
+                        inference_options_for_stable_diffusion_xl_img2img = (
+                            self._get_inference_options_for_stable_diffusion(
+                                refiner, options
+                            )
+                        )
+
+                        if not isinstance(
+                            inference_options_for_stable_diffusion_xl_img2img,
+                            InferenceOptionsForStableDiffusionXLImg2ImgPipeline,
+                        ):
+                            raise ValueError(
+                                f"Inference options are incorrectly configured for {StableDiffusionXLImg2ImgPipeline.__name__}"  # noqa
+                            )
+
+                        # Configure output for stable diffusion xl pipeline
+                        output_for_stable_diffusion_xl_img2img_pipeline = OutputForStableDiffusionPipeline(  # noqa
+                            # generator=generator,
+                        )
+
+                        # Specify input for stable diffusion xl pipeline
+                        stable_diffusion_pipeline_xl_img2img_input = StableDiffusionXLImg2ImgPipelineInput(  # noqa
+                            input=input_for_stable_diffusion_xl_img2img,
+                            inference_options=inference_options_for_stable_diffusion_xl_img2img,
+                            callback_options=callback_options,
+                            output=output_for_stable_diffusion_xl_img2img_pipeline,
+                        )
+
+                        # TODO: Enforce better typing on derived class
+                        temp_input = asdict(
+                            stable_diffusion_pipeline_xl_img2img_input.inference_options
+                        )
+                        temp_input.pop("height")
+                        temp_input.pop("width")
+
                         pipe_result = refiner(
-                            image=latents,  # type: ignore
-                            **asdict(stable_diffusion_options),
-                            **asdict(prompt_options_for_refiner),
+                            **asdict(stable_diffusion_pipeline_xl_img2img_input.input),
+                            **temp_input,
+                            **asdict(
+                                stable_diffusion_pipeline_xl_img2img_input.callback_options
+                            ),
+                            **asdict(stable_diffusion_pipeline_xl_img2img_input.output),
+                            generator=generator,
                         )  # type: ignore
                     else:
-                        pipe_result = pipe(
-                            return_dict=False,
-                            **asdict(stable_diffusion_options),
-                            **asdict(prompt_options),
-                        )  # type:ignore
+                        raise ValueError(
+                            f"Pipeline {type(pipe).__name__} has no supported inference options!"  # noqa
+                        )
 
                     # pipe returns a tuple in the form the first element is a list with
                     # the generated images, and the second element is a list of `bool`s
