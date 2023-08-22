@@ -3,7 +3,8 @@ import logging
 import os
 from compel import Compel, ReturnedEmbeddingsType
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Union, List, Any
+from dataclasses import dataclass, asdict
 
 from diffusers import (
     DiffusionPipeline,
@@ -26,6 +27,22 @@ import transformers  # noqa
 from transformers.pipelines.base import PipelineException  # noqa
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class PromptOptionsForDiffusionPipeline:
+    """
+    Currently prompt options for a diffusion pipeline are specified in two ways:
+    1. Construct options with prompt and negative_prompt
+    2. Construct options with embeddings
+    """
+
+    prompt: Optional[Union[str, List[str]]] = None
+    negative_prompt: Optional[Union[str, List[str]]] = None
+    prompt_embeds: Optional[torch.FloatTensor] = None
+    negative_prompt_embeds: Optional[torch.FloatTensor] = None
+    pooled_prompt_embeds: Optional[torch.FloatTensor] = None
+    negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None
 
 
 def _init_compel(
@@ -94,7 +111,9 @@ def _init_compel(
     return None
 
 
-def _run_compel(compel: Compel, prompt: str, negative_prompt: str = "") -> dict:
+def _run_compel(
+    compel: Compel, prompt: str, negative_prompt: str = ""
+) -> PromptOptionsForDiffusionPipeline:
     prompt_embeds = None
     pooled_prompt_embeds = None
     negative_prompt_embeds = None
@@ -116,35 +135,29 @@ def _run_compel(compel: Compel, prompt: str, negative_prompt: str = "") -> dict:
         [prompt_embeds, negative_prompt_embeds]
     )
 
-    embeddings = {
-        "prompt_embeds": padded_prompt_embeds,
-        "negative_prompt_embeds": padded_negative_prompt_embeds,
-    }
-
-    if pooled_prompt_embeds is not None:
-        embeddings["pooled_prompt_embeds"] = pooled_prompt_embeds
-
-    if negative_pooled_prompt_embeds is not None:
-        embeddings["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds
+    embeddings = PromptOptionsForDiffusionPipeline(
+        prompt_embeds=padded_prompt_embeds,
+        negative_prompt_embeds=padded_negative_prompt_embeds,
+        pooled_prompt_embeds=pooled_prompt_embeds,
+        negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
+    )
 
     return embeddings
 
 
-def get_prompt_embedddings(
+def get_prompt_options_for_diffusion_pipeline(
     device, pipeline: DiffusionPipeline, prompt: str, negative_prompt: str = ""
-) -> dict:
+) -> PromptOptionsForDiffusionPipeline:
     """
-    Returns prompt embeddings if a compel object exists; otherwise,
-    no embeddings are returned
+    Returns prompt options for embeddings if a compel object exists; otherwise,
+    prompt options without embeddings are returned
     """
 
     LOGGER.info(""" [*] Generating embeddings. (Ignore token indices complaint)""")
 
-    without_embeddings = {
-        "prompt": prompt,
-        "negative_prompt": negative_prompt,
-    }
-
+    without_embeddings = PromptOptionsForDiffusionPipeline(
+        prompt=prompt, negative_prompt=negative_prompt
+    )
     compel = _init_compel(device, pipeline, prompt, negative_prompt)
 
     if compel:
@@ -336,7 +349,7 @@ class Inference:
                     pipe = pipe.to(self.device)  # type: ignore
 
                     # Generates prompt embeddings for Stable Diffusion Pipelines
-                    prompt_embeddings = get_prompt_embedddings(
+                    prompt_options = get_prompt_options_for_diffusion_pipeline(
                         self.device, pipe, prompt, negative_prompt
                     )
 
@@ -348,7 +361,7 @@ class Inference:
                         latents = pipe(
                             output_type="latent",
                             **stable_diffusion_options,
-                            **prompt_embeddings,
+                            **asdict(prompt_options),
                         ).images  # type: ignore
 
                         refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
@@ -362,20 +375,22 @@ class Inference:
                         refiner = refiner.to(self.device)
 
                         # Generates additional embeddings for refiner
-                        prompt_embeddings_for_refiner = get_prompt_embedddings(
-                            self.device, refiner, prompt, negative_prompt
+                        prompt_options_for_refiner = (
+                            get_prompt_options_for_diffusion_pipeline(
+                                self.device, refiner, prompt, negative_prompt
+                            )
                         )
 
                         pipe_result = refiner(
                             image=latents,  # type: ignore
                             **stable_diffusion_options,
-                            **prompt_embeddings_for_refiner,
+                            **asdict(prompt_options_for_refiner),
                         )  # type: ignore
                     else:
                         pipe_result = pipe(
                             return_dict=False,
                             **stable_diffusion_options,
-                            **prompt_embeddings,
+                            **asdict(prompt_options),
                         )  # type:ignore
 
                     # pipe returns a tuple in the form the first element is a list with
