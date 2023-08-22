@@ -4,7 +4,7 @@ import os
 from compel import Compel, ReturnedEmbeddingsType
 from pathlib import Path
 from typing import Optional, Dict, Union, List, Any, Tuple
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 
 from diffusers import (
     DiffusionPipeline,
