@@ -4,11 +4,14 @@ import json
 import logging
 import platform
 import subprocess
-from typing import Dict
+from shutil import which
+from typing import Dict, List
 
 from aiohttp import client_exceptions
 import click
 from gql import gql
+
+from spice_agent.utils.memory_size import MemorySize
 
 from spice_agent.utils.config import (
     SPICE_TRAINING_FILEPATH,
@@ -43,6 +46,145 @@ class Hardware:
             "physical_memory": data_type.get("physical_memory"),
             "apple_serial_number": data_type.get("serial_number"),
         }
+
+    def _get_supported_metal_device(self) -> int | None:
+        """
+        Checks if metal hardware is supported. If so, the index
+        of the supported metal device is returned
+        """
+        supported_metal_device = None
+        is_system_profiler_available = bool(which("system_profiler"))
+        if is_system_profiler_available:
+            system_profiler_display_data_type_command = (
+                "system_profiler SPDisplaysDataType -json"
+            )
+            try:
+                system_profiler_display_data_type_output = subprocess.check_output(
+                    system_profiler_display_data_type_command.split(" ")
+                )
+            except subprocess.CalledProcessError as exception:
+                message = f"Error running system_profiler: {exception}"
+                LOGGER.error(message)
+                return supported_metal_device
+
+            try:
+                system_profiler_display_data_type_json = json.loads(
+                    system_profiler_display_data_type_output
+                )
+            except json.JSONDecodeError as exception:
+                message = f"Error decoding JSON: {exception}"
+                LOGGER.error(message)
+                return supported_metal_device
+
+            # Checks if any attached displays have metal support
+            # Note, other devices here could be AMD GPUs or unconfigured Nvidia GPUs
+            for index, display in enumerate(
+                system_profiler_display_data_type_json["SPDisplaysDataType"]
+            ):
+                if "spdisplays_mtlgpufamilysupport" in display:
+                    supported_metal_device = index
+                    return supported_metal_device
+
+        return supported_metal_device
+
+    def get_gpu_config(self) -> List:
+        """
+        For Nvidia based systems, nvidia-smi will be used to profile the gpu/s.
+        For Metal based systems, we will gather information from SPDisplaysDataType.
+        """
+        gpu_config = []
+
+        # Check nvidia gpu availability
+        is_nvidia_smi_available = bool(which("nvidia-smi"))
+        if is_nvidia_smi_available:
+            nvidia_smi_query_gpu_csv_command = "nvidia-smi --query-gpu=gpu_name,driver_version,memory.total --format=csv"  # noqa
+            try:
+                nvidia_smi_query_gpu_csv_output = subprocess.check_output(
+                    nvidia_smi_query_gpu_csv_command.split(" "),
+                )
+            except subprocess.CalledProcessError as exception:
+                message = f"Command {nvidia_smi_query_gpu_csv_command} failed with exception: {exception}"  # noqa
+                LOGGER.error(message)
+                raise exception
+
+            try:
+                nvidia_smi_query_gpu_csv_decoded = (
+                    nvidia_smi_query_gpu_csv_output.decode("utf-8")
+                    .replace("\r", "")
+                    .replace(", ", ",")
+                    .lstrip("\n")
+                )
+            except UnicodeDecodeError as exception:
+                message = f"Error decoding: {exception}"
+                LOGGER.error(message)
+                raise exception
+
+            nvidia_smi_query_gpu_csv_dict_reader = csv.DictReader(
+                io.StringIO(nvidia_smi_query_gpu_csv_decoded)
+            )
+
+            for gpu_info in nvidia_smi_query_gpu_csv_dict_reader:
+                # Refactor key into GB
+                memory_total_in_mebibytes = gpu_info.pop("memory.total [MiB]")
+                memory_size = MemorySize(memory_total_in_mebibytes)
+                memory_size.convert_to("GB")
+                gpu_info["memory_total"] = str(memory_size)
+
+                gpu_config.append(gpu_info)
+
+            return gpu_config
+
+        # Check Metal gpu availability
+        supported_metal_device = self._get_supported_metal_device()
+        if supported_metal_device:
+            # Since Apple's SoC contains Metal,
+            # we query the system itself for total memory
+            system_profiler_hardware_data_type_command = (
+                "system_profiler SPHardwareDataType -json"
+            )
+
+            try:
+                system_profiler_hardware_data_type_output = subprocess.check_output(
+                    system_profiler_hardware_data_type_command.split(" ")
+                )
+            except subprocess.CalledProcessError as exception:
+                message = f"Error running {system_profiler_hardware_data_type_command}: {exception}"  # noqa
+                LOGGER.error(message)
+                raise exception
+
+            try:
+                system_profiler_hardware_data_type_json = json.loads(
+                    system_profiler_hardware_data_type_output
+                )
+            except json.JSONDecodeError as exception:
+                message = f"Error decoding JSON: {exception}"  # noqa
+                LOGGER.error(message)
+                raise exception
+
+            metal_device_json = system_profiler_hardware_data_type_json[
+                "SPHardwareDataType"
+            ][supported_metal_device]
+
+            gpu_info = {}
+            gpu_info["name"] = metal_device_json.get("chip_type")
+
+            # Refactor key into GB
+            physical_memory = metal_device_json.get("physical_memory")
+            memory_size = MemorySize(physical_memory)
+            memory_size.convert_to("GB")
+            gpu_info["memory_total"] = str(memory_size)
+
+            gpu_config.append(gpu_info)
+
+            return gpu_config
+
+        # Raise an error if there is no valid gpu config
+        if not gpu_config:
+            message = "No valid gpu configuration"
+            LOGGER.error(message)
+            raise NotImplementedError(message)
+
+        return gpu_config
 
     def get_windows_computer_service_product_values(self) -> Dict[str, str]:
         windows_computer_service_product_csv_command = (
@@ -133,6 +275,7 @@ class Hardware:
         system_info["machine"] = platform.machine()
         system_info["architecture"] = platform.architecture()[0]
         system_info["cpu_cores"] = str(platform.os.cpu_count())  # type: ignore exits
+        system_info["gpu_config"] = self.get_gpu_config()
         return system_info
 
     def register(self):
