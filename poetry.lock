@@ -450,6 +450,23 @@ files = [
 ]
 
 [[package]]
+name = "compel"
+version = "2.0.1"
+description = "A prompting enhancement library for transformers-type text embedding systems."
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "compel-2.0.1-py3-none-any.whl", hash = "sha256:b8cf061f5fb0a8dd97600cfbeed5d1d15a7d6fc78f14cfb8241cf081988f2c7c"},
+    {file = "compel-2.0.1.tar.gz", hash = "sha256:1617fd8ad0bd6c153a3bb4b63d921b1a77ebb649cd0c532f536180141e8ecd62"},
+]
+
+[package.dependencies]
+diffusers = ">=0.11"
+pyparsing = ">=3.0,<4.0"
+torch = "*"
+transformers = ">=4.25,<5.0"
+
+[[package]]
 name = "coverage"
 version = "7.2.7"
 description = "Code coverage measurement for Python"
@@ -2066,6 +2083,20 @@ files = [
 pylint = ">=1.7"
 
 [[package]]
+name = "pyparsing"
+version = "3.1.1"
+description = "pyparsing module - Classes and methods to define and execute parsing grammars"
+optional = false
+python-versions = ">=3.6.8"
+files = [
+    {file = "pyparsing-3.1.1-py3-none-any.whl", hash = "sha256:32c7c0b711493c72ff18a981d24f28aaf9c1fb7ed5e9667c9e84e3db623bdbfb"},
+    {file = "pyparsing-3.1.1.tar.gz", hash = "sha256:ede28a1a32462f5a9705e07aea48001a08f7cf81a021585011deba701581a0db"},
+]
+
+[package.extras]
+diagrams = ["jinja2", "railroad-diagrams"]
+
+[[package]]
 name = "pytest"
 version = "7.4.0"
 description = "pytest: simple powerful testing with Python"
@@ -3327,4 +3358,4 @@ testing = ["big-O", "flake8 (<5)", "jaraco.functools", "jaraco.itertools", "more
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11.3"
-content-hash = "0f3ce7d940911d15971d913668dc2f08ed7e414c0d4c5070f6c00b91299b3273"
+content-hash = "fba0f45925190508b427b39735400486a79f7b94610837eec1d9942709e3b79e"
