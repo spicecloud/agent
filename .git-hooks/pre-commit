@@ -15,10 +15,10 @@ if [ $? -ne 0 ]; then
     fi
 fi
 
-# ensure package and project versions match
-pytest -k test_version --quiet
+# ensure tests pass
+pytest
 if [ $? -ne 0 ]; then
-    echo "version mismatch. Aborting commit."
+    echo "test errors. Aborting commit."
     exit 1
 fi
 
