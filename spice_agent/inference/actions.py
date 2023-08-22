@@ -3,8 +3,8 @@ import logging
 import os
 from compel import Compel, ReturnedEmbeddingsType
 from pathlib import Path
-from typing import Optional, Dict, Union, List, Any
-from dataclasses import dataclass, asdict
+from typing import Optional, Dict, Union, List, Any, Tuple
+from dataclasses import dataclass, field, asdict
 
 from diffusers import (
     DiffusionPipeline,
@@ -30,7 +30,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
-class PromptOptionsForDiffusionPipeline:
+class PromptOptionsForStableDiffusionPipeline:
     """
     Currently prompt options for a diffusion pipeline are specified in two ways:
     1. Construct options with prompt and negative_prompt
@@ -43,6 +43,20 @@ class PromptOptionsForDiffusionPipeline:
     negative_prompt_embeds: Optional[torch.FloatTensor] = None
     pooled_prompt_embeds: Optional[torch.FloatTensor] = None
     negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None
+
+
+@dataclass
+class InferenceOptionsForStableDiffusionPipeline:
+    height: Optional[int] = None
+    width: Optional[int] = None
+    num_inference_steps: int = 32
+    guidance_scale: float = 7.0
+    num_images_per_prompt: Optional[int] = 1
+    generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None
+    cross_attention_kwargs: Optional[Dict[str, Any]] = None
+    guidance_rescale: float = 0.0
+    original_size: Optional[Tuple[int, int]] = None
+    target_size: Optional[Tuple[int, int]] = None
 
 
 def _init_compel(
@@ -113,7 +127,7 @@ def _init_compel(
 
 def _run_compel(
     compel: Compel, prompt: str, negative_prompt: str = ""
-) -> PromptOptionsForDiffusionPipeline:
+) -> PromptOptionsForStableDiffusionPipeline:
     prompt_embeds = None
     pooled_prompt_embeds = None
     negative_prompt_embeds = None
@@ -135,7 +149,7 @@ def _run_compel(
         [prompt_embeds, negative_prompt_embeds]
     )
 
-    embeddings = PromptOptionsForDiffusionPipeline(
+    embeddings = PromptOptionsForStableDiffusionPipeline(
         prompt_embeds=padded_prompt_embeds,
         negative_prompt_embeds=padded_negative_prompt_embeds,
         pooled_prompt_embeds=pooled_prompt_embeds,
@@ -147,7 +161,7 @@ def _run_compel(
 
 def get_prompt_options_for_diffusion_pipeline(
     device, pipeline: DiffusionPipeline, prompt: str, negative_prompt: str = ""
-) -> PromptOptionsForDiffusionPipeline:
+) -> PromptOptionsForStableDiffusionPipeline:
     """
     Returns prompt options for embeddings if a compel object exists; otherwise,
     prompt options without embeddings are returned
@@ -155,7 +169,7 @@ def get_prompt_options_for_diffusion_pipeline(
 
     LOGGER.info(""" [*] Generating embeddings. (Ignore token indices complaint)""")
 
-    without_embeddings = PromptOptionsForDiffusionPipeline(
+    without_embeddings = PromptOptionsForStableDiffusionPipeline(
         prompt=prompt, negative_prompt=negative_prompt
     )
     compel = _init_compel(device, pipeline, prompt, negative_prompt)
@@ -248,24 +262,18 @@ class Inference:
             else:
                 raise exception
 
-    def _get_stable_diffusion_options(self, options: Dict[str, Any]) -> dict:
+    def _get_stable_diffusion_options(
+        self, options: Dict[str, Any]
+    ) -> InferenceOptionsForStableDiffusionPipeline:
         """
         Parses any inference options that may be defined for
-        StableDiffusionPipeline
+        StableDiffusionPipeline.
         """
 
-        stable_diffusion_options: dict = {}
-
-        if "negative_prompt" in options:
-            stable_diffusion_options["negative_prompt"] = options["negative_prompt"]
-
-        if "guidance_scale" in options:
-            stable_diffusion_options["guidance_scale"] = options["guidance_scale"]
-
-        if "num_inference_steps" in options:
-            stable_diffusion_options["num_inference_steps"] = options[
-                "num_inference_steps"
-            ]
+        stable_diffusion_options: dict = {
+            "guidance_scale": options.get("guidance_scale"),
+            "num_inference_steps": options.get("num_inference_steps"),
+        }
 
         if "seed" in options:
             # Note, completely reproducible results are not guaranteed across
@@ -274,7 +282,11 @@ class Inference:
                 int(options["seed"])
             )
 
-        return stable_diffusion_options
+        inference_options_for_stable_diffusion_pipeline = (
+            InferenceOptionsForStableDiffusionPipeline(**stable_diffusion_options)
+        )
+
+        return inference_options_for_stable_diffusion_pipeline
 
     def run_pipeline(
         self,
@@ -330,13 +342,9 @@ class Inference:
                 SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / f"{inference_job_id}.png")
 
-                stable_diffusion_options = self._get_stable_diffusion_options(options)
                 prompt = text_input
-                negative_prompt = ""
-                if negative_prompt := stable_diffusion_options["negative_prompt"]:
-                    # We remove the negative prompt from options since we will
-                    # track it in prompt embeddings
-                    stable_diffusion_options.pop("negative_prompt")
+                negative_prompt = options.get("negative_prompt", "")
+                stable_diffusion_options = self._get_stable_diffusion_options(options)
 
                 was_guarded = False
                 if not save_at.exists():
@@ -348,7 +356,7 @@ class Inference:
                     )
                     pipe = pipe.to(self.device)  # type: ignore
 
-                    # Generates prompt embeddings for Stable Diffusion Pipelines
+                    # Get prompt embeddings for Stable Diffusion Pipelines
                     prompt_options = get_prompt_options_for_diffusion_pipeline(
                         self.device, pipe, prompt, negative_prompt
                     )
@@ -360,7 +368,7 @@ class Inference:
                     ):
                         latents = pipe(
                             output_type="latent",
-                            **stable_diffusion_options,
+                            **asdict(stable_diffusion_options),
                             **asdict(prompt_options),
                         ).images  # type: ignore
 
@@ -383,13 +391,13 @@ class Inference:
 
                         pipe_result = refiner(
                             image=latents,  # type: ignore
-                            **stable_diffusion_options,
+                            **asdict(stable_diffusion_options),
                             **asdict(prompt_options_for_refiner),
                         )  # type: ignore
                     else:
                         pipe_result = pipe(
                             return_dict=False,
-                            **stable_diffusion_options,
+                            **asdict(stable_diffusion_options),
                             **asdict(prompt_options),
                         )  # type:ignore
 
