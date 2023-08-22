@@ -128,6 +128,33 @@ class OutputForStableDiffusionPipeline:
 # Data Classes for Stable Diffusion XL Pipeline ----------------------------------------
 @dataclass
 class InputForStableDiffusionXLPipeline:
+    """
+    Inputs for Stable Diffusion XL Pipeline
+
+    Args:
+        prompt (`str` or `List[str]`, *optional*):
+            The prompt or prompts to guide the image generation. If not defined, one has to pass `prompt_embeds`.
+            instead.
+        negative_prompt (`str` or `List[str]`, *optional*):
+            The prompt or prompts not to guide the image generation. If not defined, one has to pass
+            `negative_prompt_embeds` instead. Ignored when not using guidance (i.e., ignored if `guidance_scale` is
+            less than `1`).
+        prompt_embeds (`torch.FloatTensor`, *optional*):
+            Pre-generated text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt weighting. If not
+            provided, text embeddings will be generated from `prompt` input argument.
+        negative_prompt_embeds (`torch.FloatTensor`, *optional*):
+            Pre-generated negative text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt
+            weighting. If not provided, negative_prompt_embeds will be generated from `negative_prompt` input
+            argument.
+        pooled_prompt_embeds (`torch.FloatTensor`, *optional*):
+                Pre-generated pooled text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt weighting.
+                If not provided, pooled text embeddings will be generated from `prompt` input argument.
+        negative_pooled_prompt_embeds (`torch.FloatTensor`, *optional*):
+            Pre-generated negative pooled text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt
+            weighting. If not provided, pooled negative_prompt_embeds will be generated from `negative_prompt`
+            input argument.
+    """  # noqa
+
     prompt: Optional[Union[str, List[str]]] = None
     negative_prompt: Optional[Union[str, List[str]]] = None
     prompt_embeds: Optional[torch.FloatTensor] = None
@@ -138,6 +165,45 @@ class InputForStableDiffusionXLPipeline:
 
 @dataclass
 class InferenceOptionsForStableDiffusionXLPipeline:
+    """
+    Inference Options for Stable Diffusion XL Pipeline
+
+    Args:
+        height (`int`, *optional*, defaults to self.unet.config.sample_size * self.vae_scale_factor):
+            The height in pixels of the generated image.
+        width (`int`, *optional*, defaults to self.unet.config.sample_size * self.vae_scale_factor):
+            The width in pixels of the generated image.
+        num_inference_steps (`int`, *optional*, defaults to 50):
+            The number of denoising steps. More denoising steps usually lead to a higher quality image at the
+            expense of slower inference.
+        guidance_scale (`float`, *optional*, defaults to 7.5):
+            Guidance scale as defined in [Classifier-Free Diffusion Guidance](https://arxiv.org/abs/2207.12598).
+            `guidance_scale` is defined as `w` of equation 2. of [Imagen
+            Paper](https://arxiv.org/pdf/2205.11487.pdf). Guidance scale is enabled by setting `guidance_scale >
+            1`. Higher guidance scale encourages to generate images that are closely linked to the text `prompt`,
+            usually at the expense of lower image quality.
+        num_images_per_prompt (`int`, *optional*, defaults to 1):
+            The number of images to generate per prompt.
+        eta (`float`, *optional*, defaults to 0.0):
+            Corresponds to parameter eta (η) in the DDIM paper: https://arxiv.org/abs/2010.02502. Only applies to
+            [`schedulers.DDIMScheduler`], will be ignored for others.
+        cross_attention_kwargs (`dict`, *optional*):
+            A kwargs dictionary that if specified is passed along to the `AttentionProcessor` as defined under
+            `self.processor` in
+            [diffusers.cross_attention](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/cross_attention.py).
+        guidance_rescale (`float`, *optional*, defaults to 0.7):
+            Guidance rescale factor proposed by [Common Diffusion Noise Schedules and Sample Steps are
+            Flawed](https://arxiv.org/pdf/2305.08891.pdf) `guidance_scale` is defined as `φ` in equation 16. of
+            [Common Diffusion Noise Schedules and Sample Steps are Flawed](https://arxiv.org/pdf/2305.08891.pdf).
+            Guidance rescale factor should fix overexposure when using zero terminal SNR.
+        original_size (`Tuple[int]`, *optional*, defaults to (1024, 1024)):
+            TODO
+        crops_coords_top_left (`Tuple[int]`, *optional*, defaults to (0, 0)):
+            TODO
+        target_size (`Tuple[int]`, *optional*, defaults to (1024, 1024)):
+            TODO
+    """  # noqa
+
     height: Optional[int] = None
     width: Optional[int] = None
     num_inference_steps: int = 50
@@ -157,9 +223,32 @@ class InferenceOptionsForStableDiffusionXLPipeline:
 @dataclass
 class InputForStableDiffusionXLImg2ImgPipeline:
     """
+    Input for Stable Diffusion XL Img2Img Pipeline
+
     Args:
         image (`torch.FloatTensor` or `PIL.Image.Image` or `np.ndarray` or `List[torch.FloatTensor]` or `List[PIL.Image.Image]` or `List[np.ndarray]`):
             The image(s) to modify with the pipeline.
+        prompt (`str` or `List[str]`, *optional*):
+            The prompt or prompts to guide the image generation. If not defined, one has to pass `prompt_embeds`.
+            instead.
+        negative_prompt (`str` or `List[str]`, *optional*):
+            The prompt or prompts not to guide the image generation. If not defined, one has to pass
+            `negative_prompt_embeds` instead. Ignored when not using guidance (i.e., ignored if `guidance_scale` is
+            less than `1`).
+        prompt_embeds (`torch.FloatTensor`, *optional*):
+            Pre-generated text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt weighting. If not
+            provided, text embeddings will be generated from `prompt` input argument.
+        negative_prompt_embeds (`torch.FloatTensor`, *optional*):
+            Pre-generated negative text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt
+            weighting. If not provided, negative_prompt_embeds will be generated from `negative_prompt` input
+            argument.
+        pooled_prompt_embeds (`torch.FloatTensor`, *optional*):
+            Pre-generated pooled text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt weighting.
+            If not provided, pooled text embeddings will be generated from `prompt` input argument.
+        negative_pooled_prompt_embeds (`torch.FloatTensor`, *optional*):
+            Pre-generated negative pooled text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt
+            weighting. If not provided, pooled negative_prompt_embeds will be generated from `negative_prompt`
+            input argument.
     """  # noqa
 
     image: Optional[
@@ -191,16 +280,44 @@ class InferenceOptionsForStableDiffusionXLImg2ImgPipeline:
             denoising steps depends on the amount of noise initially added. When `strength` is 1, added noise will
             be maximum and the denoising process will run for the full number of iterations specified in
             `num_inference_steps`. A value of 1, therefore, essentially ignores `image`.
+        num_inference_steps (`int`, *optional*, defaults to 50):
+            The number of denoising steps. More denoising steps usually lead to a higher quality image at the
+            expense of slower inference.
+        guidance_scale (`float`, *optional*, defaults to 7.5):
+            Guidance scale as defined in [Classifier-Free Diffusion Guidance](https://arxiv.org/abs/2207.12598).
+            `guidance_scale` is defined as `w` of equation 2. of [Imagen
+            Paper](https://arxiv.org/pdf/2205.11487.pdf). Guidance scale is enabled by setting `guidance_scale >
+            1`. Higher guidance scale encourages to generate images that are closely linked to the text `prompt`,
+            usually at the expense of lower image quality.
+        num_images_per_prompt (`int`, *optional*, defaults to 1):
+            The number of images to generate per prompt.
+        eta (`float`, *optional*, defaults to 0.0):
+            Corresponds to parameter eta (η) in the DDIM paper: https://arxiv.org/abs/2010.02502. Only applies to
+            [`schedulers.DDIMScheduler`], will be ignored for others.
+        cross_attention_kwargs (`dict`, *optional*):
+            A kwargs dictionary that if specified is passed along to the `AttentionProcessor` as defined under
+            `self.processor` in
+            [diffusers.cross_attention](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/cross_attention.py).
+        guidance_rescale (`float`, *optional*, defaults to 0.7):
+            Guidance rescale factor proposed by [Common Diffusion Noise Schedules and Sample Steps are
+            Flawed](https://arxiv.org/pdf/2305.08891.pdf) `guidance_scale` is defined as `φ` in equation 16. of
+            [Common Diffusion Noise Schedules and Sample Steps are Flawed](https://arxiv.org/pdf/2305.08891.pdf).
+            Guidance rescale factor should fix overexposure when using zero terminal SNR.
+        original_size (`Tuple[int]`, *optional*, defaults to (1024, 1024)):
+            TODO
+        crops_coords_top_left (`Tuple[int]`, *optional*, defaults to (0, 0)):
+            TODO
+        target_size (`Tuple[int]`, *optional*, defaults to (1024, 1024)):
+            TODO
         aesthetic_score (`float`, *optional*, defaults to 6.0):
             TODO
         negative_aesthetic_score (`float`, *optional*, defaults to 2.5):
             TDOO
 
+
     """  # noqa
 
     strength: float = 0.3
-    aesthetic_score: float = 6.0
-    negative_aesthetic_score: float = 2.5
     num_inference_steps: int = 50
     guidance_scale: float = 7.5
     num_images_per_prompt: Optional[int] = 1
@@ -210,6 +327,8 @@ class InferenceOptionsForStableDiffusionXLImg2ImgPipeline:
     original_size: Optional[Tuple[int, int]] = None
     crops_coords_top_left: Tuple[int, int] = (0, 0)
     target_size: Optional[Tuple[int, int]] = None
+    aesthetic_score: float = 6.0
+    negative_aesthetic_score: float = 2.5
 
 
 # Encapsulating data classes for input -------------------------------------------------
