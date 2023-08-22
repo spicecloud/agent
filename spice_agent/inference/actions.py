@@ -17,6 +17,7 @@ from gql.transport.exceptions import TransportQueryError
 
 from spice_agent.inference.types import (
     CallbackOptionsBase,
+    OutputForStableDiffusionPipeline,
     InputForStableDiffusionPipeline,
     InputForStableDiffusionXLPipeline,
     InputForStableDiffusionXLImg2ImgPipeline,
@@ -26,7 +27,6 @@ from spice_agent.inference.types import (
     StableDiffusionPipelineInput,
     StableDiffusionXLPipelineInput,
     StableDiffusionXLImg2ImgPipelineInput,
-    OutputForStableDiffusionPipeline,
 )
 from spice_agent.utils.config import SPICE_INFERENCE_DIRECTORY
 
@@ -277,7 +277,7 @@ class Inference:
     ) -> Union[
         InferenceOptionsForStableDiffusionPipeline,
         InferenceOptionsForStableDiffusionXLPipeline,
-        InferenceOptionsForStableDiffusionXLPipeline,
+        InferenceOptionsForStableDiffusionXLImg2ImgPipeline,
     ]:
         """
         Parses any inference options that may be defined for
@@ -404,6 +404,22 @@ class Inference:
                             return_dict=False,
                         )
 
+                        if not isinstance(
+                            input_for_stable_diffusion_pipeline,
+                            InputForStableDiffusionPipeline,
+                        ):
+                            raise ValueError(
+                                "Input for stable diffusion pipeline not configured!"
+                            )
+
+                        if not isinstance(
+                            inference_options_for_stable_diffusion,
+                            InferenceOptionsForStableDiffusionPipeline,
+                        ):
+                            raise ValueError(
+                                "Infernece options for stable diffusion pipeline not configured!"  # noqa
+                            )
+
                         # Specify input for stable diffusion pipeline
                         stable_diffusion_pipeline_input = StableDiffusionPipelineInput(
                             input=input_for_stable_diffusion_pipeline,
@@ -514,16 +530,11 @@ class Inference:
                             output=output_for_stable_diffusion_xl_img2img_pipeline,
                         )
 
-                        # TODO: Enforce better typing on derived class
-                        temp_input = asdict(
-                            stable_diffusion_pipeline_xl_img2img_input.inference_options
-                        )
-                        temp_input.pop("height")
-                        temp_input.pop("width")
-
                         pipe_result = refiner(
                             **asdict(stable_diffusion_pipeline_xl_img2img_input.input),
-                            **temp_input,
+                            **asdict(
+                                stable_diffusion_pipeline_xl_img2img_input.inference_options
+                            ),
                             **asdict(
                                 stable_diffusion_pipeline_xl_img2img_input.callback_options
                             ),

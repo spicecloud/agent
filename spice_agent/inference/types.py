@@ -127,22 +127,35 @@ class OutputForStableDiffusionPipeline:
 
 # Data Classes for Stable Diffusion XL Pipeline ----------------------------------------
 @dataclass
-class InputForStableDiffusionXLPipeline(InputForStableDiffusionPipeline):
+class InputForStableDiffusionXLPipeline:
+    prompt: Optional[Union[str, List[str]]] = None
+    negative_prompt: Optional[Union[str, List[str]]] = None
+    prompt_embeds: Optional[torch.FloatTensor] = None
+    negative_prompt_embeds: Optional[torch.FloatTensor] = None
     pooled_prompt_embeds: Optional[torch.FloatTensor] = None
     negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None
 
 
 @dataclass
-class InferenceOptionsForStableDiffusionXLPipeline(
-    InferenceOptionsForStableDiffusionPipeline
-):
+class InferenceOptionsForStableDiffusionXLPipeline:
+    height: Optional[int] = None
+    width: Optional[int] = None
+    num_inference_steps: int = 50
+    guidance_scale: float = 7.5
+    num_images_per_prompt: Optional[int] = 1
+    eta: float = 0.0
+    cross_attention_kwargs: Optional[Dict[str, Any]] = None
+    guidance_rescale: float = 0.7
     original_size: Optional[Tuple[int, int]] = None
     crops_coords_top_left: Tuple[int, int] = (0, 0)
     target_size: Optional[Tuple[int, int]] = None
 
 
+# Data Classes for Stable Diffusion XL IMG2IMG Pipeline --------------------------------
+
+
 @dataclass
-class InputForStableDiffusionXLImg2ImgPipeline(InputForStableDiffusionXLPipeline):
+class InputForStableDiffusionXLImg2ImgPipeline:
     """
     Args:
         image (`torch.FloatTensor` or `PIL.Image.Image` or `np.ndarray` or `List[torch.FloatTensor]` or `List[PIL.Image.Image]` or `List[np.ndarray]`):
@@ -160,11 +173,16 @@ class InputForStableDiffusionXLImg2ImgPipeline(InputForStableDiffusionXLPipeline
         ]
     ] = None
 
+    prompt: Optional[Union[str, List[str]]] = None
+    negative_prompt: Optional[Union[str, List[str]]] = None
+    prompt_embeds: Optional[torch.FloatTensor] = None
+    negative_prompt_embeds: Optional[torch.FloatTensor] = None
+    pooled_prompt_embeds: Optional[torch.FloatTensor] = None
+    negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None
+
 
 @dataclass
-class InferenceOptionsForStableDiffusionXLImg2ImgPipeline(
-    InferenceOptionsForStableDiffusionXLPipeline
-):
+class InferenceOptionsForStableDiffusionXLImg2ImgPipeline:
     """
     Args:
         strength (`float`, *optional*, defaults to 0.8):
@@ -183,6 +201,15 @@ class InferenceOptionsForStableDiffusionXLImg2ImgPipeline(
     strength: float = 0.3
     aesthetic_score: float = 6.0
     negative_aesthetic_score: float = 2.5
+    num_inference_steps: int = 50
+    guidance_scale: float = 7.5
+    num_images_per_prompt: Optional[int] = 1
+    eta: float = 0.0
+    cross_attention_kwargs: Optional[Dict[str, Any]] = None
+    guidance_rescale: float = 0.7
+    original_size: Optional[Tuple[int, int]] = None
+    crops_coords_top_left: Tuple[int, int] = (0, 0)
+    target_size: Optional[Tuple[int, int]] = None
 
 
 # Encapsulating data classes for input -------------------------------------------------
