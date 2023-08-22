@@ -108,8 +108,9 @@ def _init_compel(
 
 
 def _run_compel(
-    compel: Compel, prompt: str, negative_prompt: str = ""
-) -> InputForStableDiffusionXLPipeline:
+    compel: Compel, pipeline: DiffusionPipeline, prompt: str, negative_prompt: str = ""
+) -> InputForStableDiffusionPipeline | InputForStableDiffusionXLPipeline | None:
+    embeddings = None
     prompt_embeds = None
     pooled_prompt_embeds = None
     negative_prompt_embeds = None
@@ -131,12 +132,20 @@ def _run_compel(
         [prompt_embeds, negative_prompt_embeds]
     )
 
-    embeddings = InputForStableDiffusionXLPipeline(
-        prompt_embeds=padded_prompt_embeds,
-        negative_prompt_embeds=padded_negative_prompt_embeds,
-        pooled_prompt_embeds=pooled_prompt_embeds,
-        negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
-    )
+    if isinstance(pipeline, StableDiffusionPipeline):
+        embeddings = InputForStableDiffusionPipeline(
+            prompt_embeds=padded_prompt_embeds,
+            negative_prompt_embeds=padded_negative_prompt_embeds,
+        )
+    elif isinstance(
+        pipeline, (StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline)
+    ):
+        embeddings = InputForStableDiffusionXLPipeline(
+            prompt_embeds=padded_prompt_embeds,
+            negative_prompt_embeds=padded_negative_prompt_embeds,
+            pooled_prompt_embeds=pooled_prompt_embeds,
+            negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
+        )
 
     return embeddings
 
@@ -158,7 +167,9 @@ def get_input_for_stable_diffusion_pipeline(
 
     if compel:
         try:
-            return _run_compel(compel, prompt, negative_prompt)
+            embeddings = _run_compel(compel, pipeline, prompt, negative_prompt)
+            if not embeddings:
+                return without_embeddings
         except Exception as exception:
             LOGGER.error(
                 f""" [*] Embedding generation failed with exception {exception}! Falling back to normal prompt."""  # noqa
@@ -388,7 +399,7 @@ class Inference:
                         )
 
                         # Configure output for stable diffusion pipeline
-                        output_for_stable_diffusion_pipeline = OutputForStableDiffusionPipeline(
+                        output_for_stable_diffusion_pipeline = OutputForStableDiffusionPipeline(  # noqa
                             # generator=generator,
                             return_dict=False,
                         )
