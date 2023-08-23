@@ -3,22 +3,20 @@ import io
 import json
 import logging
 import platform
-import subprocess
 from shutil import which
+import subprocess
 from typing import Dict, List
 
 from aiohttp import client_exceptions
 import click
 from gql import gql
 
-from spice_agent.utils.memory_size import MemorySize
-
 from spice_agent.utils.config import (
     SPICE_TRAINING_FILEPATH,
     read_config_file,
     update_config_file,
 )
-
+from spice_agent.utils.memory_size import MemorySize
 
 LOGGER = logging.getLogger(__name__)
 
@@ -131,50 +129,47 @@ class Hardware:
 
                 gpu_config.append(gpu_info)
 
-            return gpu_config
-
-        # Check Metal gpu availability
-        supported_metal_device = self._get_supported_metal_device()
-        if supported_metal_device:
-            # Since Apple's SoC contains Metal,
-            # we query the system itself for total memory
-            system_profiler_hardware_data_type_command = (
-                "system_profiler SPHardwareDataType -json"
-            )
-
-            try:
-                system_profiler_hardware_data_type_output = subprocess.check_output(
-                    system_profiler_hardware_data_type_command.split(" ")
+        if platform.system() == "Darwin":
+            # Check Metal gpu availability
+            supported_metal_device = self._get_supported_metal_device()
+            if supported_metal_device is not None:
+                # Since Apple's SoC contains Metal,
+                # we query the system itself for total memory
+                system_profiler_hardware_data_type_command = (
+                    "system_profiler SPHardwareDataType -json"
                 )
-            except subprocess.CalledProcessError as exception:
-                message = f"Error running {system_profiler_hardware_data_type_command}: {exception}"  # noqa
-                LOGGER.error(message)
-                raise exception
 
-            try:
-                system_profiler_hardware_data_type_json = json.loads(
-                    system_profiler_hardware_data_type_output
-                )
-            except json.JSONDecodeError as exception:
-                message = f"Error decoding JSON: {exception}"  # noqa
-                LOGGER.error(message)
-                raise exception
+                try:
+                    system_profiler_hardware_data_type_output = subprocess.check_output(
+                        system_profiler_hardware_data_type_command.split(" ")
+                    )
+                except subprocess.CalledProcessError as exception:
+                    message = f"Error running {system_profiler_hardware_data_type_command}: {exception}"  # noqa
+                    LOGGER.error(message)
+                    raise exception
 
-            metal_device_json = system_profiler_hardware_data_type_json[
-                "SPHardwareDataType"
-            ][supported_metal_device]
+                try:
+                    system_profiler_hardware_data_type_json = json.loads(
+                        system_profiler_hardware_data_type_output
+                    )
+                except json.JSONDecodeError as exception:
+                    message = f"Error decoding JSON: {exception}"  # noqa
+                    LOGGER.error(message)
+                    raise exception
 
-            gpu_info = {}
-            gpu_info["name"] = metal_device_json.get("chip_type")
+                metal_device_json = system_profiler_hardware_data_type_json[
+                    "SPHardwareDataType"
+                ][supported_metal_device]
 
-            # Refactor key into B
-            physical_memory = metal_device_json.get("physical_memory")
-            memory_size = MemorySize(physical_memory)
-            gpu_info["memory_total"] = memory_size.to_bytes()
+                gpu_info = {}
+                gpu_info["name"] = metal_device_json.get("chip_type")
 
-            gpu_config.append(gpu_info)
+                # Refactor key into B
+                physical_memory = metal_device_json.get("physical_memory")
+                memory_size = MemorySize(physical_memory)
+                gpu_info["memory_total"] = memory_size.to_bytes()
 
-            return gpu_config
+                gpu_config.append(gpu_info)
 
         # Raise an error if there is no valid gpu config
         if not gpu_config:
