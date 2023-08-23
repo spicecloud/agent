@@ -3,22 +3,20 @@ import io
 import json
 import logging
 import platform
-import subprocess
 from shutil import which
+import subprocess
 from typing import Dict, List
 
 from aiohttp import client_exceptions
 import click
 from gql import gql
 
-from spice_agent.utils.memory_size import MemorySize
-
 from spice_agent.utils.config import (
     SPICE_TRAINING_FILEPATH,
     read_config_file,
     update_config_file,
 )
-
+from spice_agent.utils.memory_size import MemorySize
 
 LOGGER = logging.getLogger(__name__)
 
@@ -96,7 +94,7 @@ class Hardware:
 
         # Check nvidia gpu availability
         is_nvidia_smi_available = bool(which("nvidia-smi"))
-        if is_nvidia_smi_available:
+        if is_nvidia_smi_available is not None:
             nvidia_smi_query_gpu_csv_command = "nvidia-smi --query-gpu=gpu_name,driver_version,memory.total --format=csv"  # noqa
             try:
                 nvidia_smi_query_gpu_csv_output = subprocess.check_output(
@@ -135,7 +133,7 @@ class Hardware:
 
         # Check Metal gpu availability
         supported_metal_device = self._get_supported_metal_device()
-        if supported_metal_device:
+        if supported_metal_device is not None:
             # Since Apple's SoC contains Metal,
             # we query the system itself for total memory
             system_profiler_hardware_data_type_command = (
