@@ -44,10 +44,10 @@ def test_to_bytes_conversion():
 
     # Check going down in scale
     size = MemorySize(1.03, "GB")
-    assert size.to_bytes() == 1.03 * 1024**3
+    assert size.to_bytes() == 1.03 * 1000**3
 
     size = MemorySize("1.03 GB")
-    assert size.to_bytes() == 1.03 * 1024**3
+    assert size.to_bytes() == 1.03 * 1000**3
 
     # Check going from binary to decimal
     size = MemorySize(2.123, "PiB")
@@ -81,14 +81,28 @@ def test_convert_to():
         size.convert_to("invalid")
 
 
+def test_to_human_readable():
+    size = MemorySize(123123, "MB")
+    value, unit = size.get_human_readable()
+    assert f"{value:.3f} {unit}" == "123.123 GB"
+
+    size = MemorySize(314159, "MiB")
+    value, unit = size.get_human_readable()
+    assert f"{value:.3f} {unit}" == "329.420 GB"
+
+
 def test_comparison_equal():
-    size1 = MemorySize(1024, "KB")
+    size1 = MemorySize(1000, "KB")
     size2 = MemorySize(1, "MB")
+    assert size1 == size2
+
+    size1 = MemorySize(1024, "KiB")
+    size2 = MemorySize(1, "MiB")
     assert size1 == size2
 
 
 def test_comparison_not_equal():
-    size1 = MemorySize(512, "B")
+    size1 = MemorySize(1024, "B")
     size2 = MemorySize(1, "KB")
     assert size1 != size2
 

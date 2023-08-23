@@ -1,12 +1,15 @@
+from typing import Tuple
+
+
 class MemorySize:
     CONVERSION_FACTORS: dict[str, float] = {
         "b": 1 / 8,
         "B": 1,
-        "KB": 1024,
-        "MB": 1024**2,
-        "GB": 1024**3,
-        "TB": 1024**4,
-        "PB": 1024**5,
+        "KB": 1000,
+        "MB": 1000**2,
+        "GB": 1000**3,
+        "TB": 1000**4,
+        "PB": 1000**5,
         "KiB": 2**10,
         "MiB": 2**20,
         "GiB": 2**30,
@@ -69,3 +72,16 @@ class MemorySize:
         )
         self.value *= factor
         self.unit = target_unit
+
+    def get_human_readable(self) -> Tuple[float, str]:
+        """
+        Converts the stored value to a human-readable format
+        """
+        HUMAN_READABLE_UNITS: list[str] = ["PB", "TB", "GB", "MB", "KB", "B"]
+
+        value_in_bytes = self.to_bytes()
+        for unit in HUMAN_READABLE_UNITS:
+            value_in_unit = value_in_bytes * (1.000 / self.CONVERSION_FACTORS[unit])
+            if value_in_unit >= 1.0:
+                return (value_in_unit, unit)
+        return (value_in_bytes, "B")
