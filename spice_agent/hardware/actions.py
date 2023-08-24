@@ -308,6 +308,52 @@ class Hardware:
         self.check_in_http(is_healthy=True)
         return result
 
+    def update_hardware_system_info(self):
+        """
+        Updates hardware system information and returns the GraphQL response.
+
+        Returns:
+            dict: GraphQL response
+        Raises:
+            Exception: If no fingerprint is found or an error occurs
+        """
+
+        fingerprint = self.spice.host_config.get("fingerprint", None)
+        if not fingerprint:
+            message = "No fingerprint found. Please register: spice hardware register"
+            raise Exception(message)
+
+        system_info = self.get_system_info()
+        new_state = {
+            "systemInfo": system_info,
+        }
+
+        mutation = gql(
+            """
+            mutation updateHardwareSystemInfo($input: UpdateHardwareSystemInfoInput!) {
+                updateHardwareSystemInfo(input: $input) {
+                    ... on Hardware {
+                        systemInfo
+                    }
+                }
+            }
+            """
+        )
+
+        input = new_state
+        variables = {"input": input}
+        try:
+            result = self.spice.session.execute(mutation, variable_values=variables)
+        except client_exceptions.ClientConnectorError as exception:
+            message = " [*] Failed to update hardware system info! "
+            LOGGER.error(message)
+            raise exception
+
+        message = " [*] Updated hardware system info successfully! "
+        LOGGER.info(message)
+
+        return result
+
     def check_in_http(
         self,
         is_healthy: bool = True,

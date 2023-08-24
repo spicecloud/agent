@@ -221,6 +221,7 @@ class Worker:
     def start(self):
         LOGGER.info(" [*] ✨ spice worker")
         LOGGER.info(f" [*] Version: {get_current_version()}")
+        self.spice.hardware.update_hardware_system_info()
         self.spice.hardware.check_in_http(is_available=False, is_online=True)
         try:
             while True:
