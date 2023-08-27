@@ -201,7 +201,7 @@ class Inference:
         self,
         inference_job_id: str,
         status: Optional[str] = None,
-        status_details: Optional[Dict[str, Any]] = {},
+        status_details: Optional[Dict[str, Any]] = None,
         was_guarded: Optional[bool] = None,
         text_output: Optional[str] = None,
         file_outputs_ids: list[str] = [],
