@@ -12,6 +12,13 @@ from diffusers import (
     StableDiffusionXLPipeline,
     StableDiffusionXLImg2ImgPipeline,
 )
+from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
+from diffusers.models.attention_processor import (
+    AttnProcessor2_0,
+    LoRAAttnProcessor2_0,
+    LoRAXFormersAttnProcessor,
+    XFormersAttnProcessor,
+)
 from gql import gql
 from gql.transport.exceptions import TransportQueryError
 
@@ -332,7 +339,7 @@ class Inference:
         """  # noqa
 
         # Need access to vae to decode here:
-        if self.pipe and self.inference_job_id and self.pipe_input:
+        if self.pipe and self.inference_job_id and self.pipe_input and step > 0:
             # Update progress on backend
             self._update_inference_job(
                 inference_job_id=self.inference_job_id,
@@ -344,6 +351,67 @@ class Inference:
                     * 100
                 },
             )
+
+    def callback_for_stable_diffusion_xl(
+        self, step: int, timestep: int, latents: torch.FloatTensor
+    ) -> None:
+        """
+        A function that will be called every `callback_steps` steps during inference. The function will be
+        called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
+        """  # noqa
+
+        # Need access to vae to decode here:
+        if self.pipe and self.inference_job_id and self.pipe_input and step > 0:
+            # Send preview images
+            with torch.no_grad():
+                # make sure the VAE is in float32 mode, as it overflows in float16
+                self.pipe.vae.to(dtype=torch.float32)
+
+                use_torch_2_0_or_xformers = isinstance(
+                    self.pipe.vae.decoder.mid_block.attentions[0].processor,
+                    (
+                        AttnProcessor2_0,
+                        XFormersAttnProcessor,
+                        LoRAXFormersAttnProcessor,
+                        LoRAAttnProcessor2_0,
+                    ),
+                )
+                if use_torch_2_0_or_xformers:
+                    self.pipe.vae.post_quant_conv.to(latents.dtype)
+                    self.pipe.vae.decoder.conv_in.to(latents.dtype)
+                    self.pipe.vae.decoder.mid_block.to(latents.dtype)
+                else:
+                    latents = latents.float()  # type: ignore
+
+                file_name = f"{self.inference_job_id}-preview-step-{step}.png"
+                save_at = Path(SPICE_INFERENCE_DIRECTORY / file_name)
+
+                image = self.pipe.vae.decode(
+                    latents / self.pipe.vae.config.scaling_factor, return_dict=False
+                )[0]
+                image = self.pipe.watermark.apply_watermark(image)
+                image = self.pipe.image_processor.postprocess(image, output_type="pil")
+
+                image = StableDiffusionXLPipelineOutput(images=image)[0][0]
+                image.save(save_at)
+
+                upload_file_response = self.spice.uploader.upload_file_via_api(
+                    path=save_at
+                )
+                file_id = upload_file_response.json()["data"]["uploadFile"]["id"]
+                self._update_inference_job(
+                    inference_job_id=self.inference_job_id,
+                    status="COMPLETE",
+                    file_outputs_ids=file_id,
+                    status_details={
+                        "progress": (
+                            (step + 1)
+                            / self.pipe_input.inference_options.num_inference_steps
+                        )
+                        * 100,
+                        "current_image_file_name": file_name,
+                    },
+                )
 
     def run_pipeline(
         self,
@@ -404,7 +472,8 @@ class Inference:
                 prompt = text_input
                 negative_prompt = options.get("negative_prompt", "")
                 generator = self._get_generator(int(options.get("seed", -1)))
-                callback = self.callback_for_stable_diffusion
+
+                options["callback_steps"] = 10
 
                 was_guarded = False
                 if not save_at.exists():
@@ -468,7 +537,7 @@ class Inference:
                             **asdict(stable_diffusion_pipeline_input.inference_options),
                             **asdict(stable_diffusion_pipeline_input.output),
                             generator=generator,
-                            callback=callback,
+                            callback=self.callback_for_stable_diffusion,
                         )  # type:ignore
                     # Configure MOE for xl diffusion base + refinement TASK
                     elif isinstance(pipe, StableDiffusionXLPipeline):
@@ -515,7 +584,7 @@ class Inference:
                             ),
                             **asdict(stable_diffusion_pipeline_xl_input.output),
                             generator=generator,
-                            callback=callback,
+                            callback=self.callback_for_stable_diffusion_xl,
                         ).images  # type: ignore
 
                         refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
