@@ -5,25 +5,6 @@ from PIL import Image as PILImage
 import numpy as np
 
 
-# Base Data Classes --------------------------------------------------------------------
-@dataclass
-class CallbackOptionsBase:
-    """
-    Callback options
-
-    Args:
-        callback (`Callable`, *optional*):
-            A function that will be called every `callback_steps` steps during inference. The function will be
-            called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
-        callback_steps (`int`, *optional*, defaults to 1):
-            The frequency at which the `callback` function will be called. If not specified, the callback will be
-            called at every step.
-    """  # noqa
-
-    callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None
-    callback_steps: int = 1
-
-
 # Data Classes for Stable Diffusion Pipeline -------------------------------------------
 @dataclass
 class InputForStableDiffusionPipeline:
@@ -77,6 +58,9 @@ class InferenceOptionsForStableDiffusionPipeline:
         eta (`float`, *optional*, defaults to 0.0):
             Corresponds to parameter eta (η) in the DDIM paper: https://arxiv.org/abs/2010.02502. Only applies to
             [`schedulers.DDIMScheduler`], will be ignored for others.
+        callback_steps (`int`, *optional*, defaults to 1):
+            The frequency at which the `callback` function will be called. If not specified, the callback will be
+            called at every step.
         cross_attention_kwargs (`dict`, *optional*):
             A kwargs dictionary that if specified is passed along to the `AttentionProcessor` as defined under
             `self.processor` in
@@ -94,6 +78,7 @@ class InferenceOptionsForStableDiffusionPipeline:
     guidance_scale: float = 7.5
     num_images_per_prompt: Optional[int] = 1
     eta: float = 0.0
+    callback_steps: int = 1
     cross_attention_kwargs: Optional[Dict[str, Any]] = None
     guidance_rescale: float = 0.7
 
@@ -187,6 +172,9 @@ class InferenceOptionsForStableDiffusionXLPipeline:
         eta (`float`, *optional*, defaults to 0.0):
             Corresponds to parameter eta (η) in the DDIM paper: https://arxiv.org/abs/2010.02502. Only applies to
             [`schedulers.DDIMScheduler`], will be ignored for others.
+        callback_steps (`int`, *optional*, defaults to 1):
+            The frequency at which the `callback` function will be called. If not specified, the callback will be
+            called at every step.
         cross_attention_kwargs (`dict`, *optional*):
             A kwargs dictionary that if specified is passed along to the `AttentionProcessor` as defined under
             `self.processor` in
@@ -210,6 +198,7 @@ class InferenceOptionsForStableDiffusionXLPipeline:
     guidance_scale: float = 7.5
     num_images_per_prompt: Optional[int] = 1
     eta: float = 0.0
+    callback_steps: int = 1
     cross_attention_kwargs: Optional[Dict[str, Any]] = None
     guidance_rescale: float = 0.7
     original_size: Optional[Tuple[int, int]] = None
@@ -294,6 +283,9 @@ class InferenceOptionsForStableDiffusionXLImg2ImgPipeline:
         eta (`float`, *optional*, defaults to 0.0):
             Corresponds to parameter eta (η) in the DDIM paper: https://arxiv.org/abs/2010.02502. Only applies to
             [`schedulers.DDIMScheduler`], will be ignored for others.
+        callback_steps (`int`, *optional*, defaults to 1):
+            The frequency at which the `callback` function will be called. If not specified, the callback will be
+            called at every step.
         cross_attention_kwargs (`dict`, *optional*):
             A kwargs dictionary that if specified is passed along to the `AttentionProcessor` as defined under
             `self.processor` in
@@ -322,6 +314,7 @@ class InferenceOptionsForStableDiffusionXLImg2ImgPipeline:
     guidance_scale: float = 7.5
     num_images_per_prompt: Optional[int] = 1
     eta: float = 0.0
+    callback_steps: int = 1
     cross_attention_kwargs: Optional[Dict[str, Any]] = None
     guidance_rescale: float = 0.7
     original_size: Optional[Tuple[int, int]] = None
@@ -336,7 +329,6 @@ class InferenceOptionsForStableDiffusionXLImg2ImgPipeline:
 # These have the following 4 attributes:
 # - input: these are inputs sent to the inference task
 # - inference_options: these are options that affect the run
-# - callback_options: these are options that observe the run
 # - output: these are additional arguments that specify output behavior
 
 
@@ -344,7 +336,6 @@ class InferenceOptionsForStableDiffusionXLImg2ImgPipeline:
 class StableDiffusionPipelineInput:
     input: InputForStableDiffusionPipeline
     inference_options: InferenceOptionsForStableDiffusionPipeline
-    callback_options: CallbackOptionsBase
     output: OutputForStableDiffusionPipeline
 
 
@@ -352,7 +343,6 @@ class StableDiffusionPipelineInput:
 class StableDiffusionXLPipelineInput:
     input: InputForStableDiffusionXLPipeline
     inference_options: InferenceOptionsForStableDiffusionXLPipeline
-    callback_options: CallbackOptionsBase
     output: OutputForStableDiffusionPipeline
 
 
@@ -360,5 +350,4 @@ class StableDiffusionXLPipelineInput:
 class StableDiffusionXLImg2ImgPipelineInput:
     input: InputForStableDiffusionXLImg2ImgPipeline
     inference_options: InferenceOptionsForStableDiffusionXLImg2ImgPipeline
-    callback_options: CallbackOptionsBase
     output: OutputForStableDiffusionPipeline
