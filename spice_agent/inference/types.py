@@ -1,5 +1,5 @@
 import torch
-from typing import Optional, Dict, Union, List, Any, Tuple, Callable
+from typing import Optional, Dict, Union, List, Any, Tuple
 from dataclasses import dataclass
 from PIL import Image as PILImage
 import numpy as np
