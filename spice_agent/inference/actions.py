@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 import os
 from compel import Compel, ReturnedEmbeddingsType
 from pathlib import Path
@@ -198,6 +199,11 @@ class Inference:
             ]
         ] = None
 
+        # Threading
+        self.progress_thread = None
+        self.image_preview_thread = None
+        self.update_inference_job_lock = threading.Lock()
+
         # logging.basicConfig(level=logging.INFO)
         if self.spice.DEBUG:
             transformers.logging.set_verbosity_debug()  # type: ignore
@@ -352,18 +358,25 @@ class Inference:
                 },
             )
 
-    def callback_for_stable_diffusion_xl(
-        self, step: int, timestep: int, latents: torch.FloatTensor
-    ) -> None:
-        """
-        A function that will be called every `callback_steps` steps during inference. The function will be
-        called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
-        """  # noqa
+    def update_progress(self, step: int):
+        if self.pipe and self.inference_job_id and self.pipe_input:
+            progress = (
+                (step + 1) / self.pipe_input.inference_options.num_inference_steps
+            ) * 100
 
-        # Need access to vae to decode here:
-        if self.pipe and self.inference_job_id and self.pipe_input and step > 0:
+            print(f"Sending progress update: {progress}")
+            with self.update_inference_job_lock:
+                self._update_inference_job(
+                    inference_job_id=self.inference_job_id,
+                    status_details={"progress": progress},
+                )
+                print("Sending progress complete!")
+
+    def update_image_preview(self, step: int, latents: torch.FloatTensor):
+        if self.pipe and self.inference_job_id and self.pipe_input:
             # Send preview images
             with torch.no_grad():
+                print(f"Sending image preview update! {step}")
                 # make sure the VAE is in float32 mode, as it overflows in float16
                 self.pipe.vae.to(dtype=torch.float32)
 
@@ -399,19 +412,42 @@ class Inference:
                     path=save_at
                 )
                 file_id = upload_file_response.json()["data"]["uploadFile"]["id"]
-                self._update_inference_job(
-                    inference_job_id=self.inference_job_id,
-                    status="COMPLETE",
-                    file_outputs_ids=file_id,
-                    status_details={
-                        "progress": (
-                            (step + 1)
-                            / self.pipe_input.inference_options.num_inference_steps
-                        )
-                        * 100,
-                        "current_image_file_name": file_name,
-                    },
+
+                with self.update_inference_job_lock:
+                    self._update_inference_job(
+                        inference_job_id=self.inference_job_id,
+                        status="COMPLETE",
+                        file_outputs_ids=file_id,
+                        status_details={
+                            "current_image_file_name": file_name,
+                        },
+                    )
+                    print("Sending image preview update complete!")
+
+    def callback_for_stable_diffusion_xl(
+        self, step: int, timestep: int, latents: torch.FloatTensor
+    ) -> None:
+        """
+        A function that will be called every `callback_steps` steps during inference. The function will be
+        called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
+        """  # noqa
+
+        # Need access to vae to decode here:
+        if self.pipe and self.inference_job_id and self.pipe_input and step > 0:
+            if not self.progress_thread or not self.progress_thread.is_alive():
+                self.progress_thread = threading.Thread(
+                    target=self.update_progress, args=(step,)
                 )
+                self.progress_thread.start()
+
+            if (
+                not self.image_preview_thread
+                or not self.image_preview_thread.is_alive()
+            ):
+                self.image_preview_thread = threading.Thread(
+                    target=self.update_image_preview, args=(step, latents)
+                )
+                self.image_preview_thread.start()
 
     def run_pipeline(
         self,
@@ -472,8 +508,6 @@ class Inference:
                 prompt = text_input
                 negative_prompt = options.get("negative_prompt", "")
                 generator = self._get_generator(int(options.get("seed", -1)))
-
-                options["callback_steps"] = 10
 
                 was_guarded = False
                 if not save_at.exists():
@@ -587,6 +621,13 @@ class Inference:
                             callback=self.callback_for_stable_diffusion_xl,
                         ).images  # type: ignore
 
+                        # Cleanup threads
+                        if self.progress_thread:
+                            self.progress_thread.join()
+
+                        if self.image_preview_thread:
+                            self.image_preview_thread.join()
+
                         refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
                             "stabilityai/stable-diffusion-xl-refiner-1.0",
                             text_encoder_2=pipe.text_encoder_2,
@@ -667,6 +708,10 @@ class Inference:
                 response = self._update_inference_job(
                     inference_job_id=inference_job_id,
                     status="COMPLETE",
+                    status_details={
+                        "progress": 100,
+                        "current_image_file_name": f"{inference_job_id}.png",
+                    },
                     file_outputs_ids=file_id,
                     was_guarded=was_guarded,
                 )
