@@ -9,14 +9,13 @@ from dataclasses import asdict
 from diffusers import (
     DiffusionPipeline,
     StableDiffusionPipeline,
-    StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLPipeline,
+    StableDiffusionXLImg2ImgPipeline,
 )
 from gql import gql
 from gql.transport.exceptions import TransportQueryError
 
 from spice_agent.inference.types import (
-    CallbackOptionsBase,
     OutputForStableDiffusionPipeline,
     InputForStableDiffusionPipeline,
     InputForStableDiffusionXLPipeline,
@@ -182,6 +181,15 @@ class Inference:
     def __init__(self, spice) -> None:
         self.spice = spice
         self.device = self.spice.get_device()
+        self.pipe = None
+        self.inference_job_id = None
+        self.pipe_input: Optional[
+            Union[
+                StableDiffusionPipelineInput,
+                StableDiffusionXLPipelineInput,
+                StableDiffusionXLImg2ImgPipelineInput,
+            ]
+        ] = None
 
         # logging.basicConfig(level=logging.INFO)
         if self.spice.DEBUG:
@@ -192,7 +200,8 @@ class Inference:
     def _update_inference_job(
         self,
         inference_job_id: str,
-        status: str,
+        status: Optional[str] = None,
+        status_details: Optional[Dict[str, Any]] = None,
         was_guarded: Optional[bool] = None,
         text_output: Optional[str] = None,
         file_outputs_ids: list[str] = [],
@@ -208,6 +217,7 @@ class Inference:
                         updatedAt
                         completedAt
                         status
+                        statusDetails
                         model {
                             name
                             slug
@@ -227,9 +237,11 @@ class Inference:
             """
         )
 
-        input: Dict[str, str | float | list[str]] = {"inferenceJobId": inference_job_id}
+        input: Dict[str, Any] = {"inferenceJobId": inference_job_id}
         if status is not None:
             input["status"] = status
+        if status_details is not None:
+            input["statusDetails"] = status_details
         if was_guarded is not None:
             input["wasGuarded"] = was_guarded
         if text_output is not None:
@@ -311,6 +323,28 @@ class Inference:
         # PyTorch releases.
         return torch.manual_seed(seed)
 
+    def callback_for_stable_diffusion(
+        self, step: int, timestep: int, latents: torch.FloatTensor
+    ) -> None:
+        """
+        A function that will be called every `callback_steps` steps during inference. The function will be
+        called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
+        """  # noqa
+
+        # Need access to vae to decode here:
+        if self.pipe and self.inference_job_id and self.pipe_input:
+            # Update progress on backend
+            self._update_inference_job(
+                inference_job_id=self.inference_job_id,
+                status_details={
+                    "progress": (
+                        (step + 1)
+                        / self.pipe_input.inference_options.num_inference_steps
+                    )
+                    * 100
+                },
+            )
+
     def run_pipeline(
         self,
         inference_job_id: str,
@@ -329,6 +363,8 @@ class Inference:
             return
 
         inference_job_id = result["updateInferenceJob"]["id"]
+        self.inference_job_id = inference_job_id
+
         model_repo_id = result["updateInferenceJob"]["model"]["repoId"]
         text_input = result["updateInferenceJob"]["textInput"]
         is_text_input = result["updateInferenceJob"]["model"]["isTextInput"]
@@ -368,6 +404,7 @@ class Inference:
                 prompt = text_input
                 negative_prompt = options.get("negative_prompt", "")
                 generator = self._get_generator(int(options.get("seed", -1)))
+                callback = self.callback_for_stable_diffusion
 
                 was_guarded = False
                 if not save_at.exists():
@@ -378,6 +415,7 @@ class Inference:
                         use_safetensors=True,
                     )
                     pipe = pipe.to(self.device)  # type: ignore
+                    self.pipe = pipe
 
                     # Get input for Stable Diffusion Pipelines
                     input_for_stable_diffusion_pipeline = (
@@ -385,9 +423,6 @@ class Inference:
                             self.device, pipe, prompt, negative_prompt
                         )
                     )
-
-                    # Get callback options
-                    callback_options = CallbackOptionsBase()
 
                     # Configure Stable Diffusion TASK
                     if isinstance(pipe, StableDiffusionPipeline):
@@ -417,23 +452,23 @@ class Inference:
                             InferenceOptionsForStableDiffusionPipeline,
                         ):
                             raise ValueError(
-                                "Infernece options for stable diffusion pipeline not configured!"  # noqa
+                                "Inference options for stable diffusion pipeline not configured!"  # noqa
                             )
 
                         # Specify input for stable diffusion pipeline
                         stable_diffusion_pipeline_input = StableDiffusionPipelineInput(
                             input=input_for_stable_diffusion_pipeline,
                             inference_options=inference_options_for_stable_diffusion,
-                            callback_options=callback_options,
                             output=output_for_stable_diffusion_pipeline,
                         )
+                        self.pipe_input = stable_diffusion_pipeline_input
 
                         pipe_result = pipe(
                             **asdict(stable_diffusion_pipeline_input.input),
                             **asdict(stable_diffusion_pipeline_input.inference_options),
-                            **asdict(stable_diffusion_pipeline_input.callback_options),
                             **asdict(stable_diffusion_pipeline_input.output),
                             generator=generator,
+                            callback=callback,
                         )  # type:ignore
                     # Configure MOE for xl diffusion base + refinement TASK
                     elif isinstance(pipe, StableDiffusionXLPipeline):
@@ -469,20 +504,18 @@ class Inference:
                         stable_diffusion_pipeline_xl_input = StableDiffusionXLPipelineInput(  # noqa
                             input=input_for_stable_diffusion_xl,
                             inference_options=inference_options_for_stable_diffusion_xl,
-                            callback_options=callback_options,
                             output=output_for_stable_diffusion_xl_pipeline,
                         )
+                        self.pipe_input = stable_diffusion_pipeline_xl_input
 
                         latents = pipe(
                             **asdict(stable_diffusion_pipeline_xl_input.input),
                             **asdict(
                                 stable_diffusion_pipeline_xl_input.inference_options
                             ),
-                            **asdict(
-                                stable_diffusion_pipeline_xl_input.callback_options
-                            ),
                             **asdict(stable_diffusion_pipeline_xl_input.output),
                             generator=generator,
+                            callback=callback,
                         ).images  # type: ignore
 
                         refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
@@ -526,17 +559,16 @@ class Inference:
                         stable_diffusion_pipeline_xl_img2img_input = StableDiffusionXLImg2ImgPipelineInput(  # noqa
                             input=input_for_stable_diffusion_xl_img2img,
                             inference_options=inference_options_for_stable_diffusion_xl_img2img,
-                            callback_options=callback_options,
                             output=output_for_stable_diffusion_xl_img2img_pipeline,
                         )
+                        self.pipe_input = stable_diffusion_pipeline_xl_img2img_input
 
+                        # Note, we do not attach a callback here since refinement
+                        # of the image is not as time consuming
                         pipe_result = refiner(
                             **asdict(stable_diffusion_pipeline_xl_img2img_input.input),
                             **asdict(
                                 stable_diffusion_pipeline_xl_img2img_input.inference_options
-                            ),
-                            **asdict(
-                                stable_diffusion_pipeline_xl_img2img_input.callback_options
                             ),
                             **asdict(stable_diffusion_pipeline_xl_img2img_input.output),
                             generator=generator,
@@ -551,6 +583,7 @@ class Inference:
                     # denoting whether the corresponding generated image likely
                     # represents "not-safe-for-work" (nsfw) content, according to the
                     # `safety_checker`.
+                    # TODO decode output based on output of actual pipeline
                     result = pipe_result[0][0]  # type: ignore
                     if len(pipe_result) > 1 and pipe_result[1]:  # type: ignore
                         was_guarded = pipe_result[1][0]  # type: ignore
