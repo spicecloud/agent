@@ -13,6 +13,7 @@ from diffusers import (
     StableDiffusionXLPipeline,
     StableDiffusionXLImg2ImgPipeline,
 )
+
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
 from diffusers.models.attention_processor import (
@@ -561,6 +562,7 @@ class Inference:
                 SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
                 file_name = f"{inference_job_id}-{max_step}.png"
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / file_name)
+          
                 was_guarded = False
                 if not save_at.exists():
                     pipe = DiffusionPipeline.from_pretrained(
@@ -623,7 +625,7 @@ class Inference:
                             **asdict(stable_diffusion_pipeline_input.inference_options),
                             **asdict(stable_diffusion_pipeline_input.output),
                             generator=generator,
-                            callback=self.callback_for_stable_diffusion,
+                            callback=callback,
                         )  # type:ignore
 
                         # Cleanup threads
@@ -678,7 +680,7 @@ class Inference:
                             ),
                             **asdict(stable_diffusion_pipeline_xl_input.output),
                             generator=generator,
-                            callback=self.callback_for_stable_diffusion_xl,
+                            callback=callback,
                         ).images  # type: ignore
 
                         # Cleanup threads
