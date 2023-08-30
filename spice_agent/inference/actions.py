@@ -562,8 +562,8 @@ class Inference:
                 SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
                 file_name = f"{inference_job_id}-{max_step}.png"
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / file_name)
-          
                 was_guarded = False
+
                 if not save_at.exists():
                     pipe = DiffusionPipeline.from_pretrained(
                         model_repo_id,
@@ -625,7 +625,7 @@ class Inference:
                             **asdict(stable_diffusion_pipeline_input.inference_options),
                             **asdict(stable_diffusion_pipeline_input.output),
                             generator=generator,
-                            callback=callback,
+                            callback=self.callback_for_stable_diffusion,
                         )  # type:ignore
 
                         # Cleanup threads
@@ -680,7 +680,7 @@ class Inference:
                             ),
                             **asdict(stable_diffusion_pipeline_xl_input.output),
                             generator=generator,
-                            callback=callback,
+                            callback=self.callback_for_stable_diffusion_xl,
                         ).images  # type: ignore
 
                         # Cleanup threads
