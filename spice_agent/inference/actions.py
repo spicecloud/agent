@@ -374,7 +374,7 @@ class Inference:
                 else:
                     latents = latents.float()  # type: ignore
 
-                file_name = f"{self.inference_job_id}-preview-step-{step}.png"
+                file_name = f"{self.inference_job_id}-{step}.png"
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / file_name)
 
                 image = self.pipe.vae.decode(
@@ -396,9 +396,7 @@ class Inference:
                         inference_job_id=self.inference_job_id,
                         status="COMPLETE",
                         file_outputs_ids=file_id,
-                        status_details={
-                            "current_image_file_name": file_name,
-                        },
+                        status_details={"file_version_history": {step: file_name}},
                     )
 
     def update_image_preview_for_stable_diffusion(
@@ -427,7 +425,7 @@ class Inference:
                     images=image, nsfw_content_detected=has_nsfw_concept
                 )
 
-                file_name = f"{self.inference_job_id}-preview-step-{step}.png"
+                file_name = f"{self.inference_job_id}-{step}.png"
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / file_name)
 
                 image = result[0][0]
@@ -448,9 +446,7 @@ class Inference:
                         status="COMPLETE",
                         file_outputs_ids=file_id,
                         was_guarded=was_guarded,
-                        status_details={
-                            "current_image_file_name": file_name,
-                        },
+                        status_details={"file_version_history": {step: file_name}},
                     )
 
     def callback_for_stable_diffusion(
@@ -470,7 +466,7 @@ class Inference:
             if (
                 not self.image_preview_thread
                 or not self.image_preview_thread.is_alive()
-            ):
+            ) and step > self.pipe_input.inference_options.num_inference_steps // 2:
                 self.image_preview_thread = threading.Thread(
                     target=self.update_image_preview_for_stable_diffusion,
                     args=(step, latents),
@@ -496,7 +492,7 @@ class Inference:
             if (
                 not self.image_preview_thread
                 or not self.image_preview_thread.is_alive()
-            ):
+            ) and step > self.pipe_input.inference_options.num_inference_steps // 2:
                 self.image_preview_thread = threading.Thread(
                     target=self.update_image_preview_for_stable_diffusion_xl,
                     args=(step, latents),
@@ -556,13 +552,15 @@ class Inference:
                     text_output=json.dumps(result),
                 )
             elif is_text_input and is_file_output:
-                SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
-                save_at = Path(SPICE_INFERENCE_DIRECTORY / f"{inference_job_id}.png")
-
                 prompt = text_input
                 negative_prompt = options.get("negative_prompt", "")
                 generator = self._get_generator(int(options.get("seed", -1)))
 
+                # TODO: remove max_step once a file version system is in place
+                max_step = options.get("num_inference_steps", 999)
+                SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+                file_name = f"{inference_job_id}-{max_step}.png"
+                save_at = Path(SPICE_INFERENCE_DIRECTORY / file_name)
                 was_guarded = False
                 if not save_at.exists():
                     pipe = DiffusionPipeline.from_pretrained(
@@ -767,12 +765,13 @@ class Inference:
                     path=save_at
                 )
                 file_id = upload_file_response.json()["data"]["uploadFile"]["id"]
+
                 response = self._update_inference_job(
                     inference_job_id=inference_job_id,
                     status="COMPLETE",
                     status_details={
                         "progress": 100,
-                        "current_image_file_name": f"{inference_job_id}.png",
+                        "file_version_history": {max_step: file_name},
                     },
                     file_outputs_ids=file_id,
                     was_guarded=was_guarded,
