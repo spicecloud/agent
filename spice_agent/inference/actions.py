@@ -49,6 +49,11 @@ from transformers.pipelines.base import PipelineException  # noqa
 
 LOGGER = logging.getLogger(__name__)
 
+# TODO: Currently, we only support single image outputs for
+# Stable Diffusion pipelines. This value is a placeholder for when
+# multi-image outputs are added
+IMAGE_GROUP_VALUE = 0
+
 
 def _init_compel(
     device, pipeline: DiffusionPipeline, prompt: str, negative_prompt: str = ""
@@ -375,7 +380,7 @@ class Inference:
                 else:
                     latents = latents.float()  # type: ignore
 
-                file_name = f"{self.inference_job_id}-{step}.png"
+                file_name = f"{self.inference_job_id}-{step}-{IMAGE_GROUP_VALUE}.png"
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / file_name)
 
                 image = self.pipe.vae.decode(
@@ -397,7 +402,6 @@ class Inference:
                         inference_job_id=self.inference_job_id,
                         status="COMPLETE",
                         file_outputs_ids=file_id,
-                        status_details={"file_version_history": {step: file_name}},
                     )
 
     def update_image_preview_for_stable_diffusion(
@@ -426,7 +430,7 @@ class Inference:
                     images=image, nsfw_content_detected=has_nsfw_concept
                 )
 
-                file_name = f"{self.inference_job_id}-{step}.png"
+                file_name = f"{self.inference_job_id}-{step}-{IMAGE_GROUP_VALUE}.png"
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / file_name)
 
                 image = result[0][0]
@@ -447,7 +451,6 @@ class Inference:
                         status="COMPLETE",
                         file_outputs_ids=file_id,
                         was_guarded=was_guarded,
-                        status_details={"file_version_history": {step: file_name}},
                     )
 
     def callback_for_stable_diffusion(
@@ -557,10 +560,9 @@ class Inference:
                 negative_prompt = options.get("negative_prompt", "")
                 generator = self._get_generator(int(options.get("seed", -1)))
 
-                # TODO: remove max_step once a file version system is in place
                 max_step = options.get("num_inference_steps", 999)
                 SPICE_INFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
-                file_name = f"{inference_job_id}-{max_step}.png"
+                file_name = f"{inference_job_id}-{max_step}-{IMAGE_GROUP_VALUE}.png"
                 save_at = Path(SPICE_INFERENCE_DIRECTORY / file_name)
                 was_guarded = False
 
@@ -773,7 +775,6 @@ class Inference:
                     status="COMPLETE",
                     status_details={
                         "progress": 100,
-                        "file_version_history": {max_step: file_name},
                     },
                     file_outputs_ids=file_id,
                     was_guarded=was_guarded,
