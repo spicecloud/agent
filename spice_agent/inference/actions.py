@@ -400,7 +400,6 @@ class Inference:
                 with self.update_inference_job_lock:
                     self._update_inference_job(
                         inference_job_id=self.inference_job_id,
-                        status="COMPLETE",
                         file_outputs_ids=file_id,
                     )
 
