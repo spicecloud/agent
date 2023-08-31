@@ -773,9 +773,6 @@ class Inference:
                 response = self._update_inference_job(
                     inference_job_id=inference_job_id,
                     status="COMPLETE",
-                    status_details={
-                        "progress": 100,
-                    },
                     file_outputs_ids=file_id,
                     was_guarded=was_guarded,
                 )
