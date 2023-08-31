@@ -465,10 +465,15 @@ class Inference:
                 )
                 self.progress_thread.start()
 
+            image_preview_step_condition_satisfied = (
+                step > self.pipe_input.inference_options.num_inference_steps // 2
+                and step != self.pipe_input.inference_options.num_inference_steps
+            )
+
             if (
                 not self.image_preview_thread
                 or not self.image_preview_thread.is_alive()
-            ) and step > self.pipe_input.inference_options.num_inference_steps // 2:
+            ) and image_preview_step_condition_satisfied:
                 self.image_preview_thread = threading.Thread(
                     target=self.update_image_preview_for_stable_diffusion,
                     args=(step, latents),
@@ -491,10 +496,15 @@ class Inference:
                 )
                 self.progress_thread.start()
 
+            image_preview_step_condition_satisfied = (
+                step > self.pipe_input.inference_options.num_inference_steps // 2
+                and step != self.pipe_input.inference_options.num_inference_steps
+            )
+
             if (
                 not self.image_preview_thread
                 or not self.image_preview_thread.is_alive()
-            ) and step > self.pipe_input.inference_options.num_inference_steps // 2:
+            ) and image_preview_step_condition_satisfied:
                 self.image_preview_thread = threading.Thread(
                     target=self.update_image_preview_for_stable_diffusion_xl,
                     args=(step, latents),
