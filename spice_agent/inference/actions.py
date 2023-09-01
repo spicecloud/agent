@@ -400,7 +400,6 @@ class Inference:
                 with self.update_inference_job_lock:
                     self._update_inference_job(
                         inference_job_id=self.inference_job_id,
-                        status="COMPLETE",
                         file_outputs_ids=file_id,
                     )
 
@@ -448,7 +447,6 @@ class Inference:
                 with self.update_inference_job_lock:
                     self._update_inference_job(
                         inference_job_id=self.inference_job_id,
-                        status="COMPLETE",
                         file_outputs_ids=file_id,
                         was_guarded=was_guarded,
                     )
@@ -467,10 +465,15 @@ class Inference:
                 )
                 self.progress_thread.start()
 
+            image_preview_step_condition_satisfied = (
+                step > self.pipe_input.inference_options.num_inference_steps // 2
+                and step != self.pipe_input.inference_options.num_inference_steps
+            )
+
             if (
                 not self.image_preview_thread
                 or not self.image_preview_thread.is_alive()
-            ) and step > self.pipe_input.inference_options.num_inference_steps // 2:
+            ) and image_preview_step_condition_satisfied:
                 self.image_preview_thread = threading.Thread(
                     target=self.update_image_preview_for_stable_diffusion,
                     args=(step, latents),
@@ -484,8 +487,6 @@ class Inference:
         A function that will be called every `callback_steps` steps during inference. The function will be
         called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
         """  # noqa
-
-        # Need access to vae to decode here:
         if self.pipe and self.inference_job_id and self.pipe_input and step > 0:
             if not self.progress_thread or not self.progress_thread.is_alive():
                 self.progress_thread = threading.Thread(
@@ -493,10 +494,15 @@ class Inference:
                 )
                 self.progress_thread.start()
 
+            image_preview_step_condition_satisfied = (
+                step > self.pipe_input.inference_options.num_inference_steps // 2
+                and step != self.pipe_input.inference_options.num_inference_steps
+            )
+
             if (
                 not self.image_preview_thread
                 or not self.image_preview_thread.is_alive()
-            ) and step > self.pipe_input.inference_options.num_inference_steps // 2:
+            ) and image_preview_step_condition_satisfied:
                 self.image_preview_thread = threading.Thread(
                     target=self.update_image_preview_for_stable_diffusion_xl,
                     args=(step, latents),
@@ -630,13 +636,6 @@ class Inference:
                             callback=self.callback_for_stable_diffusion,
                         )  # type:ignore
 
-                        # Cleanup threads
-                        if self.progress_thread:
-                            self.progress_thread.join()
-
-                        if self.image_preview_thread:
-                            self.image_preview_thread.join()
-
                     # Configure MOE for xl diffusion base + refinement TASK
                     elif isinstance(pipe, StableDiffusionXLPipeline):
                         # Configure input for stable diffusion xl pipeline
@@ -684,13 +683,6 @@ class Inference:
                             generator=generator,
                             callback=self.callback_for_stable_diffusion_xl,
                         ).images  # type: ignore
-
-                        # Cleanup threads
-                        if self.progress_thread:
-                            self.progress_thread.join()
-
-                        if self.image_preview_thread:
-                            self.image_preview_thread.join()
 
                         refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
                             "stabilityai/stable-diffusion-xl-refiner-1.0",
@@ -769,6 +761,13 @@ class Inference:
                     path=save_at
                 )
                 file_id = upload_file_response.json()["data"]["uploadFile"]["id"]
+
+                # Cleanup threads
+                if self.progress_thread:
+                    self.progress_thread.join()
+
+                if self.image_preview_thread:
+                    self.image_preview_thread.join()
 
                 response = self._update_inference_job(
                     inference_job_id=inference_job_id,
