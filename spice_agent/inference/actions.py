@@ -321,7 +321,7 @@ class Inference:
                             refiner, self.device, refiner_task_options
                         )
 
-                        pipe_result = refiner_task.run_pipeline(
+                        pipe_result = refiner_task.run(
                             generator=generator,
                         )
                     else:

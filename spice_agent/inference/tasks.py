@@ -522,7 +522,7 @@ class StableDiffusionXLImg2ImgPipelineTask(
                 self.progress_thread.start()
 
     @torch.no_grad()
-    def run_pipeline(
+    def run(
         self,
         generator: Optional[torch.Generator] = None,
     ):
