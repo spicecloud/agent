@@ -2,8 +2,10 @@ import json
 import logging
 import threading
 import os
+import requests
+import PIL.Image
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from diffusers import (
     DiffusionPipeline,
@@ -26,7 +28,7 @@ from spice_agent.inference.types import (
     StableDiffusionPipelineState,
 )
 
-from spice_agent.utils.config import SPICE_INFERENCE_DIRECTORY
+from spice_agent.utils.config import SPICE_INFERENCE_DIRECTORY, create_directory
 
 # from torch.mps import empty_cache as mps_empty_cache ## SAVE FOR LATER
 
@@ -42,6 +44,9 @@ LOGGER = logging.getLogger(__name__)
 # Stable Diffusion pipelines. This value is a placeholder for when
 # multi-image outputs are added
 IMAGE_GROUP_VALUE = 0
+
+SPICE_INFERENCE_FILE_INPUTS_DIRECTORY = Path(SPICE_INFERENCE_DIRECTORY / "file-inputs")
+create_directory(SPICE_INFERENCE_FILE_INPUTS_DIRECTORY)
 
 
 class Inference:
@@ -61,6 +66,38 @@ class Inference:
             transformers.logging.set_verbosity_debug()  # type: ignore
             logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
             logging.getLogger("pika").setLevel(logging.ERROR)
+
+    def _get_presigned_url(self, file_id: str):
+        query = gql(
+            """
+            query GetFile($fileId: GlobalID!) {
+                getFile(fileId: $fileId) {
+                    ... on File {
+                        fileName
+                        presignedUrl
+                    }
+                }
+            }
+            """
+        )
+
+        variables: dict[str, Any] = {"fileId": file_id}
+
+        try:
+            result = self.spice.session.execute(query, variable_values=variables)
+            return result
+        except TransportQueryError as exception:
+            if exception.errors:
+                for error in exception.errors:
+                    if error.get("message", "") == "File not found.":
+                        LOGGER.error(
+                            f""" [*] File ID: {file_id} not found.\
+                                  Exiting early."""
+                        )
+                        return None
+                raise exception
+            else:
+                raise exception
 
     def _update_inference_job(
         self,
@@ -94,6 +131,9 @@ class Inference:
                         }
                         textInput
                         textOutput
+                        fileInputs {
+                            id
+                        }
                         wasGuarded
                         options
                     }
@@ -136,6 +176,34 @@ class Inference:
         # Note, completely reproducible results are not guaranteed across
         # PyTorch releases.
         return torch.Generator(device="cpu").manual_seed(seed)
+
+    def download_file_inputs(self, file_inputs: List[Dict[str, str]]) -> List[Path]:
+        """
+        For each file input, a corresponding presigned url is fetched
+        and then used to cache a file input. The locations of each file is returned.
+        """
+
+        file_input_paths: List[Path] = []
+
+        for file in file_inputs:
+            file_id = file["id"]
+
+            get_file_result = self._get_presigned_url(file_id)
+            if get_file_result:
+                file_name = get_file_result["getFile"]["fileName"]
+                presigned_url = get_file_result["getFile"]["presignedUrl"]
+            else:
+                message = f"Unable to get presigned url for {file_id}"
+                raise ValueError(message)
+
+            response = requests.get(presigned_url)
+            response.raise_for_status()
+            file_path = SPICE_INFERENCE_FILE_INPUTS_DIRECTORY.joinpath(file_name)
+            with open(file_path, "wb") as file:
+                file.write(response.content)
+                file_input_paths.append(file_path)
+
+        return file_input_paths
 
     def update_progress(self, state: TStableDiffusionPipelineState):
         progress = state.progress
@@ -195,6 +263,24 @@ class Inference:
                     inference_job_id=self.inference_job_id,
                     file_outputs_ids=file_id,
                 )
+
+    def load_image(self, file_path: Path) -> Optional[PIL.Image.Image]:
+        try:
+            # Open the image file
+            image = PIL.Image.open(file_path)
+            return image
+        except FileNotFoundError as exception:
+            message = f"load_image: File not found - {exception}"
+            LOGGER.error(message)
+        except IOError as exception:
+            message = f"load_image: Input/Output error - {exception}"
+            LOGGER.error(message)
+        except Exception as exception:
+            message = f"load_image: An unexpected error occurred - {exception}"
+            LOGGER.error(message)
+            raise exception
+
+        return None
 
     def run_pipeline(
         self,
