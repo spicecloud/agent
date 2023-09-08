@@ -198,3 +198,45 @@ class StableDiffusionXLImg2ImgPipelineConfig:
     target_size: Optional[Tuple[int, int]] = None
     aesthetic_score: float = 6.0
     negative_aesthetic_score: float = 2.5
+
+
+@dataclass
+class StableDiffusionXLControlNetPipelineConfig:
+    prompt: Optional[Union[str, List[str]]] = None
+    prompt_2: Optional[Union[str, List[str]]] = None
+    image: Optional[
+        Union[
+            torch.FloatTensor,
+            PIL.Image.Image,
+            np.ndarray,
+            List[torch.FloatTensor],
+            List[PIL.Image.Image],
+            List[np.ndarray],
+        ]
+    ] = None
+    height: Optional[int] = None
+    width: Optional[int] = None
+    num_inference_steps: int = 50
+    guidance_scale: float = 5.0
+    negative_prompt: Optional[Union[str, List[str]]] = None
+    negative_prompt_2: Optional[Union[str, List[str]]] = None
+    num_images_per_prompt: Optional[int] = 1
+    eta: float = 0.0
+    # generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None
+    latents: Optional[torch.FloatTensor] = None
+    prompt_embeds: Optional[torch.FloatTensor] = None
+    negative_prompt_embeds: Optional[torch.FloatTensor] = None
+    pooled_prompt_embeds: Optional[torch.FloatTensor] = None
+    negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None
+    output_type: Optional[str] = "pil"
+    return_dict: bool = True
+    # callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None
+    callback_steps: int = 1
+    cross_attention_kwargs: Optional[Dict[str, Any]] = None
+    controlnet_conditioning_scale: Union[float, List[float]] = 0.7
+    guess_mode: bool = False
+    control_guidance_start: Union[float, List[float]] = 0.0
+    control_guidance_end: Union[float, List[float]] = 0.8
+    original_size: Optional[Tuple[int, int]] = None
+    crops_coords_top_left: Tuple[int, int] = (0, 0)
+    target_size: Optional[Tuple[int, int]] = None
