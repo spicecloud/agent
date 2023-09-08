@@ -8,6 +8,7 @@ from compel import Compel, ReturnedEmbeddingsType
 from dataclasses import asdict
 from diffusers import (
     StableDiffusionPipeline,
+    StableDiffusionImg2ImgPipeline,
     StableDiffusionXLPipeline,
     StableDiffusionXLImg2ImgPipeline,
 )
@@ -27,6 +28,7 @@ from spice_agent.inference.types import (
     StableDiffusionXLPipelineState,
     TStableDiffusionPipelineState,
     StableDiffusionPipelineConfig,
+    StableDiffusionImg2ImgPipelineConfig,
     StableDiffusionXLPipelineConfig,
     StableDiffusionXLImg2ImgPipelineConfig,
 )
@@ -187,6 +189,151 @@ class StableDiffusionPipelineTask(
         )
 
     def get_pipeline(self) -> StableDiffusionPipeline:
+        return self.pipeline
+
+    def update_progress(self, step: int):
+        if self.pipeline and self.config:
+            progress = (step / self.config.num_inference_steps) * 100
+
+            with self.state_lock:
+                self.run_observers(
+                    StableDiffusionPipelineState(step=step, progress=progress)
+                )
+
+    @torch.no_grad()
+    def update_image_preview(self, step: int, latents: torch.FloatTensor):
+        if self.pipeline and self.config:
+            image = self.pipeline.vae.decode(
+                latents / self.pipeline.vae.config.scaling_factor, return_dict=False
+            )[0]
+            image, has_nsfw_concept = self.pipeline.run_safety_checker(
+                image, self.device, torch.FloatTensor
+            )
+
+            if has_nsfw_concept is None:
+                do_denormalize = [True] * image.shape[0]
+            else:
+                do_denormalize = [not has_nsfw for has_nsfw in has_nsfw_concept]
+
+            image = self.pipeline.image_processor.postprocess(
+                image, do_denormalize=do_denormalize
+            )
+
+            output = StableDiffusionPipelineOutput(
+                images=image, nsfw_content_detected=has_nsfw_concept
+            )
+
+            with self.state_lock:
+                self.run_observers(
+                    StableDiffusionPipelineState(step=step, output=output)
+                )
+
+    def callback(self, step: int, timestep: int, latents: torch.FloatTensor) -> None:
+        """
+        A function that will be called every `callback_steps` steps during inference. The function will be
+        called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
+        """  # noqa
+        if self.pipeline and step > 0:
+            if not self.progress_thread or not self.progress_thread.is_alive():
+                self.progress_thread = threading.Thread(
+                    target=self.update_progress, args=(step,)
+                )
+                self.progress_thread.start()
+
+            image_preview_step_condition_satisfied = (
+                step > self.config.num_inference_steps // 2
+                and step != self.config.num_inference_steps
+            )
+
+            if (
+                not self.image_preview_thread
+                or not self.image_preview_thread.is_alive()
+            ) and image_preview_step_condition_satisfied:
+                self.image_preview_thread = threading.Thread(
+                    target=self.update_image_preview,
+                    args=(step, latents),
+                )
+                self.image_preview_thread.start()
+
+    @torch.no_grad()
+    def run(self, generator: Optional[torch.Generator] = None):
+        # Move pipeline to device
+        self.pipeline.to(self.device)
+
+        # Configure input
+        if not self.config.prompt or not self.config.negative_prompt:
+            raise ValueError("prompt and negative_prompt must be defined in config!")
+
+        compel_embeddings = self.embed(self.config.prompt, self.config.negative_prompt)
+        if compel_embeddings:
+            self.config.prompt_embeds = compel_embeddings.prompt_embeds  # type: ignore
+            self.config.negative_prompt_embeds = (  # type: ignore
+                compel_embeddings.negative_prompt_embeds
+            )
+
+            # The pipeline expects prompt and negative prompt to be None if
+            # prompt embeds are defined
+            self.config.prompt = None
+            self.config.negative_prompt = None
+
+        # Configure callback
+        callback = None
+        if self.observers:
+            callback = self.callback
+
+        result = self.pipeline(
+            **asdict(self.config),
+            generator=generator,
+            callback=callback,
+        )
+
+        # Clean up threads
+        if self.progress_thread:
+            self.progress_thread.join()
+
+        if self.image_preview_thread:
+            self.image_preview_thread.join()
+
+        return result
+
+
+class StableDiffusionImg2ImgPipelineTask(
+    StableDiffusionPipelineEmbeddingInterface,
+    StableDiffusionPipelineTaskObserver[StableDiffusionPipelineState],
+):
+    def __init__(
+        self, pipeline: StableDiffusionImg2ImgPipeline, device, options: dict[str, Any]
+    ):
+        super().__init__()
+        self.pipeline = pipeline
+        self.device = device
+
+        # Initialize configuration using options
+        filtered_options = get_filtered_options(
+            options, StableDiffusionImg2ImgPipelineConfig
+        )
+        self.config = StableDiffusionImg2ImgPipelineConfig(**filtered_options)
+
+        # Make sure 'prompt' is specified
+        if self.config.prompt is None:
+            raise ValueError("prompt cannot be None!")
+
+        # Threading for communicating task state info
+        self.progress_thread = None
+        self.image_preview_thread = None
+        self.state_lock = threading.Lock()
+
+    def get_compel(self) -> Compel:
+        return Compel(
+            tokenizer=self.pipeline.tokenizer,
+            text_encoder=self.pipeline.text_encoder,
+            returned_embeddings_type=ReturnedEmbeddingsType.LAST_HIDDEN_STATES_NORMALIZED,
+            requires_pooled=False,
+            truncate_long_prompts=False,
+            device=self.device,
+        )
+
+    def get_pipeline(self) -> StableDiffusionImg2ImgPipeline:
         return self.pipeline
 
     def update_progress(self, step: int):

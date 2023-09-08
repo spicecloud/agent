@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any, List
 from diffusers import (
     DiffusionPipeline,
     StableDiffusionPipeline,
+    StableDiffusionImg2ImgPipeline,
     StableDiffusionXLPipeline,
     StableDiffusionXLImg2ImgPipeline,
 )
@@ -18,6 +19,7 @@ from gql import gql
 from gql.transport.exceptions import TransportQueryError
 from spice_agent.inference.tasks import (
     StableDiffusionPipelineTask,
+    StableDiffusionImg2ImgPipelineTask,
     StableDiffusionXLPipelineTask,
     StableDiffusionXLImg2ImgPipelineTask,
 )
@@ -360,14 +362,39 @@ class Inference:
                     )
                     self.pipeline = pipeline
 
+                    # Build images
+                    images: List[PIL.Image.Image] = []
+
+                    for file_input_path in file_input_paths:
+                        image = self.load_image(file_input_path)
+                        if image:
+                            images.append(image)
+
+                    options["image"] = images
+
                     # Configure Stable Diffusion TASK
                     if isinstance(self.pipeline, StableDiffusionPipeline):
                         task_options = options.copy()
                         task_options["return_dict"] = False
 
-                        task = StableDiffusionPipelineTask(
-                            self.pipeline, self.device, task_options
-                        )
+                        # Configure Stable Diffusion Img2Img Task
+                        if options["image"]:
+                            self.pipeline = (
+                                StableDiffusionImg2ImgPipeline.from_pretrained(
+                                    model_repo_id,
+                                    torch_dtype=torch_dtype,
+                                    variant=variant,
+                                    use_safetensors=True,
+                                )
+                            )
+
+                            task = StableDiffusionImg2ImgPipelineTask(
+                                self.pipeline, self.device, task_options
+                            )
+                        else:
+                            task = StableDiffusionPipelineTask(
+                                self.pipeline, self.device, task_options
+                            )
 
                         task.add_observer(
                             self.update_image_preview_for_stable_diffusion
@@ -378,22 +405,13 @@ class Inference:
                         pipe_result = task.run(
                             generator=generator,
                         )
+                        print(pipe_result)
                     # Configure StableDiffusionXLImg2ImgPipeline Task
                     elif (
                         isinstance(self.pipeline, StableDiffusionXLPipeline)
-                        and file_input_paths
+                        and options["image"]
                     ):
                         task_options = options.copy()
-
-                        # Build images
-                        images: List[PIL.Image.Image] = []
-
-                        for file_input_path in file_input_paths:
-                            image = self.load_image(file_input_path)
-                            if image:
-                                images.append(image)
-
-                        task_options["image"] = images
 
                         pipeline = StableDiffusionXLImg2ImgPipeline.from_pretrained(
                             "stabilityai/stable-diffusion-xl-refiner-1.0",
