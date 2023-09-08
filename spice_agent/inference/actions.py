@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 from diffusers import (
+    ControlNetModel,
     DiffusionPipeline,
     StableDiffusionPipeline,
     StableDiffusionImg2ImgPipeline,
     StableDiffusionXLPipeline,
     StableDiffusionXLImg2ImgPipeline,
+    StableDiffusionXLControlNetPipeline,
 )
 
 from gql import gql
@@ -22,6 +24,7 @@ from spice_agent.inference.tasks import (
     StableDiffusionImg2ImgPipelineTask,
     StableDiffusionXLPipelineTask,
     StableDiffusionXLImg2ImgPipelineTask,
+    StableDiffusionXLControlNetPipelineTask,
 )
 
 from spice_agent.inference.types import (
@@ -189,7 +192,6 @@ class Inference:
 
         for file in file_inputs:
             file_id = file["id"]
-
             get_file_result = self._get_presigned_url(file_id)
             if get_file_result:
                 file_name = get_file_result["getFile"]["fileName"]
@@ -314,6 +316,8 @@ class Inference:
         is_file_input = result["updateInferenceJob"]["model"]["isFileInput"]
         options = result["updateInferenceJob"]["options"]
 
+        is_control = options.get("is_control", True)
+
         LOGGER.info(f""" [*] Model: {model_repo_id}.""")
         LOGGER.info(f""" [*] Text Input: '{text_input}'""")
 
@@ -413,21 +417,50 @@ class Inference:
                     ):
                         task_options = options.copy()
 
-                        pipeline = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-                            "stabilityai/stable-diffusion-xl-refiner-1.0",
-                            torch_dtype=torch_dtype,
-                            variant=variant,
-                            use_safetensors=True,
-                        )
-                        self.pipeline = pipeline
+                        # Configure SDXL control pipeline
+                        if is_control:
+                            # task_options["controlnet_conditioning_scale"] = 0.5
+                            controlnet = ControlNetModel.from_pretrained(
+                                "diffusers/controlnet-canny-sdxl-1.0",
+                                torch_dtype=torch.float16,
+                            )
+                            print("DOING CONTROL GENERATION")
+                            pipeline = (
+                                StableDiffusionXLControlNetPipeline.from_pretrained(
+                                    "stabilityai/stable-diffusion-xl-base-1.0",
+                                    torch_dtype=torch_dtype,
+                                    variant=variant,
+                                    use_safetensors=True,
+                                    controlnet=controlnet,
+                                )
+                            )
+                            self.pipeline = pipeline
 
-                        task = StableDiffusionXLImg2ImgPipelineTask(
-                            self.pipeline, self.device, task_options
-                        )
+                            task = StableDiffusionXLControlNetPipelineTask(
+                                self.pipeline, self.device, task_options
+                            )
 
-                        task.add_observer(self.update_progress)
+                            task.add_observer(self.update_progress)
 
-                        pipe_result = task.run(generator=generator)
+                            pipe_result = task.run(generator=generator)
+                        # Configure SDXL Img2Img pipeline
+                        else:
+                            pipeline = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+                                "stabilityai/stable-diffusion-xl-refiner-1.0",
+                                torch_dtype=torch_dtype,
+                                variant=variant,
+                                use_safetensors=True,
+                            )
+
+                            self.pipeline = pipeline
+
+                            task = StableDiffusionXLImg2ImgPipelineTask(
+                                self.pipeline, self.device, task_options
+                            )
+
+                            task.add_observer(self.update_progress)
+
+                            pipe_result = task.run(generator=generator)
                     # Configure MOE for xl diffusion base TASK + refinement TASK
                     elif isinstance(self.pipeline, StableDiffusionXLPipeline):
                         task_options = options.copy()
