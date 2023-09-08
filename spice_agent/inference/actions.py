@@ -304,14 +304,21 @@ class Inference:
 
         model_repo_id = result["updateInferenceJob"]["model"]["repoId"]
         text_input = result["updateInferenceJob"]["textInput"]
+        file_inputs = result["updateInferenceJob"]["fileInputs"]
         is_text_input = result["updateInferenceJob"]["model"]["isTextInput"]
         is_text_output = result["updateInferenceJob"]["model"]["isTextOutput"]
         result["updateInferenceJob"]["model"]["isFileInput"]
         is_file_output = result["updateInferenceJob"]["model"]["isFileOutput"]
+        is_file_input = result["updateInferenceJob"]["model"]["isFileInput"]
         options = result["updateInferenceJob"]["options"]
 
         LOGGER.info(f""" [*] Model: {model_repo_id}.""")
         LOGGER.info(f""" [*] Text Input: '{text_input}'""")
+
+        # Prepare file cache if input files are used
+        file_input_paths: List[Path] = []
+        if is_file_input and file_inputs:
+            file_input_paths = self.download_file_inputs(file_inputs)
 
         variant = "fp16"
         torch_dtype = torch.float16
@@ -371,6 +378,38 @@ class Inference:
                         pipe_result = task.run(
                             generator=generator,
                         )
+                    # Configure StableDiffusionXLImg2ImgPipeline Task
+                    elif (
+                        isinstance(self.pipeline, StableDiffusionXLPipeline)
+                        and file_input_paths
+                    ):
+                        task_options = options.copy()
+
+                        # Build images
+                        images: List[PIL.Image.Image] = []
+
+                        for file_input_path in file_input_paths:
+                            image = self.load_image(file_input_path)
+                            if image:
+                                images.append(image)
+
+                        task_options["image"] = images
+
+                        pipeline = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+                            "stabilityai/stable-diffusion-xl-refiner-1.0",
+                            torch_dtype=torch_dtype,
+                            variant=variant,
+                            use_safetensors=True,
+                        )
+                        self.pipeline = pipeline
+
+                        task = StableDiffusionXLImg2ImgPipelineTask(
+                            self.pipeline, self.device, task_options
+                        )
+
+                        task.add_observer(self.update_progress)
+
+                        pipe_result = task.run(generator=generator)
                     # Configure MOE for xl diffusion base TASK + refinement TASK
                     elif isinstance(self.pipeline, StableDiffusionXLPipeline):
                         task_options = options.copy()
