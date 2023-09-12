@@ -329,10 +329,26 @@ class Inference:
             elif is_text_input and is_file_output:
                 # Some of the inference options belong to task_config
                 task_config: dict[str, Any] = {}
-                task_config["is_control"] = options.pop("is_control", False)
-                task_config["control_types"] = options.pop("control_types", [])
+                control_options = options.pop("control_options", [])
+
+                control_types = []
+                controlnet_conditioning_scale = []
+                if control_options:
+                    for control_option in control_options:
+                        type = control_option["controlType"]
+                        scale = control_option["scale"]
+                        control_types.append(type)
+                        controlnet_conditioning_scale.append(scale)
+
+                if control_types:
+                    task_config["is_control"] = True
 
                 inference_options = options
+                inference_options[
+                    "controlnet_conditioning_scale"
+                ] = controlnet_conditioning_scale
+                task_config["control_types"] = control_types
+
                 inference_options["prompt"] = text_input
                 generator = self._get_generator(int(options.get("seed", -1)))
 
