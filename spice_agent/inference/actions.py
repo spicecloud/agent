@@ -181,7 +181,6 @@ class Inference:
 
         for file in file_inputs:
             file_id = file["id"]
-
             get_file_result = self._get_presigned_url(file_id)
             if get_file_result:
                 file_name = get_file_result["getFile"]["fileName"]
@@ -304,6 +303,8 @@ class Inference:
         is_file_output = result["updateInferenceJob"]["model"]["isFileOutput"]
         is_file_input = result["updateInferenceJob"]["model"]["isFileInput"]
         options = result["updateInferenceJob"]["options"]
+
+        is_control = options.get("is_control", True)
 
         LOGGER.info(f""" [*] Model: {model_repo_id}.""")
         LOGGER.info(f""" [*] Text Input: '{text_input}'""")
