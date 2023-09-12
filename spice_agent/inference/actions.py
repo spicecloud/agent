@@ -304,8 +304,6 @@ class Inference:
         is_file_input = result["updateInferenceJob"]["model"]["isFileInput"]
         options = result["updateInferenceJob"]["options"]
 
-        is_control = options.get("is_control", True)
-
         LOGGER.info(f""" [*] Model: {model_repo_id}.""")
         LOGGER.info(f""" [*] Text Input: '{text_input}'""")
 
