@@ -496,193 +496,69 @@ class StableDiffusionXLPipelineTask(
             output = StableDiffusionXLPipelineOutput(images=image)
 
             with self.state_lock:
-                self.run_observers(
-                    StableDiffusionXLPipelineState(step=step, output=output)
+                self.observer.run_observers(
+                    StableDiffusionPipelineTaskState(step=step, output=output)
                 )
-
-    def callback(self, step: int, timestep: int, latents: torch.FloatTensor) -> None:
-        """
-        A function that will be called every `callback_steps` steps during inference. The function will be
-        called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
-        """  # noqa
-        if self.pipeline and step > 0:
-            if not self.progress_thread or not self.progress_thread.is_alive():
-                self.progress_thread = threading.Thread(
-                    target=self.update_progress, args=(step,)
-                )
-                self.progress_thread.start()
-
-            image_preview_step_condition_satisfied = (
-                step > self.config.num_inference_steps // 2
-                and step != self.config.num_inference_steps
-            )
-
-            if (
-                not self.image_preview_thread
-                or not self.image_preview_thread.is_alive()
-            ) and image_preview_step_condition_satisfied:
-                self.image_preview_thread = threading.Thread(
-                    target=self.update_image_preview,
-                    args=(step, latents),
-                )
-                self.image_preview_thread.start()
-
-    @torch.no_grad()
-    def run(
-        self,
-        generator: Optional[torch.Generator] = None,
-    ):
-        # Move pipeline to device
-        self.pipeline.to(self.device)
-
-        # Configure input
-        if not self.config.prompt or not self.config.negative_prompt:
-            raise ValueError("prompt and negative_prompt must be defined in config!")
-
-        compel_embeddings = self.embed(self.config.prompt, self.config.negative_prompt)
-        if compel_embeddings:
-            self.config.prompt_embeds = compel_embeddings.prompt_embeds  # type: ignore
-            self.config.negative_prompt_embeds = (  # type: ignore
-                compel_embeddings.negative_prompt_embeds
-            )
-            self.config.pooled_prompt_embeds = (
-                compel_embeddings.pooled_prompt_embeds
-            )  # type: ignore
-            self.config.negative_pooled_prompt_embeds = (
-                compel_embeddings.negative_pooled_prompt_embeds
-            )  # type: ignore
-
-            # The pipeline expects prompt and negative prompt to be None if
-            # prompt embeds are defined
-            self.config.prompt = None
-            self.config.negative_prompt = None
-
-        # Configure callback
-        callback = None
-        if self.observers:
-            callback = self.callback
-
-        result = self.pipeline(
-            **asdict(self.config),
-            generator=generator,
-            callback=callback,
-        )
-
-        # Clean up threads
-        if self.progress_thread:
-            self.progress_thread.join()
-
-        if self.image_preview_thread:
-            self.image_preview_thread.join()
-
-        return result
 
 
 class StableDiffusionXLImg2ImgPipelineTask(
-    StableDiffusionPipelineEmbeddingInterface,
-    StableDiffusionPipelineTaskObserver[StableDiffusionXLPipelineState],
+    StableDiffusionPipelineTaskBase[
+        StableDiffusionXLImg2ImgPipeline,
+        StableDiffusionXLImg2ImgPipelineRunConfig,
+    ]
 ):
-    def __init__(
-        self,
-        pipeline: StableDiffusionXLImg2ImgPipeline,
-        device,
-        options: dict[str, Any],
-    ):
-        super().__init__()
-        self.pipeline = pipeline
-        self.device = device
+    @torch.no_grad()
+    def update_image_preview(self, step: int, latents: torch.FloatTensor):
+        if self.pipeline and self.pipeline_run_config:
+            # make sure the VAE is in float32 mode, as it overflows in float16
+            self.pipeline.vae.to(dtype=torch.float32)
 
-        # Initialize configuration using options
-        filtered_options = get_filtered_options(
-            options, StableDiffusionXLImg2ImgPipelineConfig
-        )
-        self.config = StableDiffusionXLImg2ImgPipelineConfig(**filtered_options)
+            use_torch_2_0_or_xformers = isinstance(
+                self.pipeline.vae.decoder.mid_block.attentions[0].processor,
+                (
+                    AttnProcessor2_0,
+                    XFormersAttnProcessor,
+                    LoRAXFormersAttnProcessor,
+                    LoRAAttnProcessor2_0,
+                ),
+            )
+            if use_torch_2_0_or_xformers:
+                self.pipeline.vae.post_quant_conv.to(latents.dtype)
+                self.pipeline.vae.decoder.conv_in.to(latents.dtype)
+                self.pipeline.vae.decoder.mid_block.to(latents.dtype)
+            else:
+                latents = latents.float()  # type: ignore
 
-        # Make sure 'prompt' is specified
-        if self.config.prompt is None:
-            raise ValueError("prompt cannot be None!")
+            image = self.pipeline.vae.decode(
+                latents / self.pipeline.vae.config.scaling_factor, return_dict=False
+            )[0]
 
-        # Threading for communicating task state info
-        self.progress_thread = None
-        self.state_lock = threading.Lock()
+            if self.pipeline.watermark:
+                image = self.pipeline.watermark.apply_watermark(image)
 
-    def get_compel(self) -> Compel:
-        return Compel(
-            tokenizer=self.pipeline.tokenizer_2,
-            text_encoder=self.pipeline.text_encoder_2,
-            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-            requires_pooled=True,
-            truncate_long_prompts=False,
-            device=self.device,
-        )
+            image = self.pipeline.image_processor.postprocess(image, output_type="pil")
 
-    def get_pipeline(self) -> StableDiffusionXLImg2ImgPipeline:
-        return self.pipeline
-
-    def update_progress(self, step: int):
-        if self.pipeline and self.config:
-            progress = (step / self.config.num_inference_steps) * 100
+            output = StableDiffusionXLPipelineOutput(images=image)
 
             with self.state_lock:
-                self.run_observers(
-                    StableDiffusionXLPipelineState(step=step, progress=progress)
+                self.observer.run_observers(
+                    StableDiffusionPipelineTaskState(step=step, output=output)
                 )
 
-    def callback(self, step: int, timestep: int, latents: torch.FloatTensor) -> None:
-        """
-        A function that will be called every `callback_steps` steps during inference. The function will be
-        called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
-        """  # noqa
-        if self.pipeline and step > 0:
-            if not self.progress_thread or not self.progress_thread.is_alive():
-                self.progress_thread = threading.Thread(
-                    target=self.update_progress, args=(step,)
-                )
-                self.progress_thread.start()
+
+class StableDiffusionXLControlNetPipelineTask(
+    StableDiffusionPipelineTaskBase[
+        StableDiffusionXLControlNetPipeline,
+        StableDiffusionXLControlNetPipelineRunConfig,
+    ]
+):
+    # def get_conditioned_image(self, image):
+    #     image = np.array(image)
+    #     image = cv2.Canny(image, 100, 200)
+    #     image = image[:, :, None]
+    #     image = np.concatenate([image, image, image], axis=2)
+    #     return PIL.Image.fromarray(image)
 
     @torch.no_grad()
-    def run(
-        self,
-        generator: Optional[torch.Generator] = None,
-    ):
-        # Move pipeline to device
-        self.pipeline.to(self.device)
-
-        # Configure input
-        if not self.config.prompt or not self.config.negative_prompt:
-            raise ValueError("prompt and negative_prompt must be defined in config!")
-
-        compel_embeddings = self.embed(self.config.prompt, self.config.negative_prompt)
-        if compel_embeddings:
-            self.config.prompt_embeds = compel_embeddings.prompt_embeds  # type: ignore
-            self.config.negative_prompt_embeds = (  # type: ignore
-                compel_embeddings.negative_prompt_embeds
-            )
-            self.config.pooled_prompt_embeds = (
-                compel_embeddings.pooled_prompt_embeds
-            )  # type: ignore
-            self.config.negative_pooled_prompt_embeds = (
-                compel_embeddings.negative_pooled_prompt_embeds
-            )  # type: ignore
-
-            # The pipeline expects prompt and negative prompt to be None if
-            # prompt embeds are defined
-            self.config.prompt = None
-            self.config.negative_prompt = None
-
-        # Configure callback
-        callback = None
-        if self.observers:
-            callback = self.callback
-
-        result = self.pipeline(
-            **asdict(self.config),
-            generator=generator,
-            callback=callback,
-        )
-
-        # Clean up threads
-        if self.progress_thread:
-            self.progress_thread.join()
-
-        return result
+    def update_image_preview(self, step: int, latents: torch.FloatTensor):
+        pass
